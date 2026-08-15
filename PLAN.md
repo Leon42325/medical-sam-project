@@ -110,11 +110,33 @@ reduce |ρ| against Fourier order and intensity difference.
 means) with a bootstrap test over targets; report interaction term model × attribute.
 
 **H3 — Specialisation–generalisation trade-off (the headline claim).**
-Medical-specialised models beat generic SAM on in-domain modalities but **lose their advantage, or fall
-behind, on modalities absent from their training corpora** (OCT, PET, mammography). Formally: the
-model-ranking correlation between the in-domain and the out-of-domain target sets is significantly below 1.
-*Test:* per-target Dice ranking of the 6 models on in-domain vs. out-of-domain sets; Kendall's τ with a
-permutation test. Reporting a *null* result here is an acceptable and publishable outcome.
+Medical-specialised models beat generic SAM on data drawn from their own training corpora, but **lose most
+or all of that advantage on data held out from them**.
+
+*Revised after the Phase-0 provenance audit* (`configs/training_corpora.yaml`). The original formulation
+defined "out-of-domain" at the level of imaging *modality* and nominated OCT, PET and mammography because
+none appears among COSMOS 1050K's 18 modalities. The audit showed that all three sit in MedSAM's training
+corpus (AutoPET and HECKTOR for PET, CDD-CESM for mammography, Intraretinal Cystoid Fluid and OCT Images DME
+for OCT): absence from COSMOS does not imply absence from MedSAM. Modality-level reasoning is too coarse —
+MedSAM's ten modalities cover nearly anything a naive choice would nominate.
+
+The replacement is stronger, because it uses the models' *own published* splits instead of our guesses:
+
+* **H3a (contamination-corrected comparison).** Partition the evaluation targets into a *seen* arm and a
+  *held-out* arm using MedSAM's supplementary tables, then re-estimate MedSAM's advantage over SAM
+  separately on each. Prediction: the advantage shrinks substantially, possibly to zero, on the held-out
+  arm. *Test:* difference-in-differences on per-target Dice, model × arm interaction, bootstrapped over
+  targets. Requires **no additional data** — the reproduction subset already straddles both arms.
+* **H3b (truly unseen modality, confirmatory).** A smaller test on one or two modalities absent from *every*
+  published corpus: OCT **angiography** (en-face vessel maps, distinct from the OCT B-scans MedSAM saw) and
+  panoramic dental radiography. *Test:* same ranking comparison as H3a.
+
+*Test for both:* per-target Dice ranking of the models across arms; Kendall's τ with a permutation test.
+Reporting a *null* result is an acceptable and publishable outcome.
+
+> The reframing is itself a contribution. Medical-SAM benchmarks routinely evaluate MedSAM on datasets it
+> was trained on and report the resulting margin as evidence of domain adaptation. The audit makes that
+> error visible and, for MedSAM at least, correctable.
 
 **H4 — Fine-tuned models inherit the prompt-jitter distribution they were trained with.**
 MedSAM (trained with box jitter of 0–20 px) degrades more gracefully under box perturbation than SAM, while
@@ -136,18 +158,28 @@ Target: **~10–12 datasets, ≥10 modalities, 22–26 object–modality pairs**
 (b) *attribute* coverage — deliberately spanning the extremes of the size / contrast / boundary-complexity
 space that H1–H2 are about, and (c) frictionless public download (no multi-week DUA).
 
-| Dataset | Modality | Targets | Why (attribute regime) |
-|---|---|---|---|
-| MSD (Task03 Liver, Task09 Spleen, Task07 Pancreas) | CT | liver, spleen, pancreas | large & smooth vs. **low-contrast** (pancreas) |
-| CHAOS | CT, T1W-MRI, T2W-MRI | liver, kidney, spleen | **same object, three modalities** — isolates the modality factor |
-| ACDC | cine-MRI | LV, RV, myocardium | myocardium = **high aspect-ratio ring** |
-| CAMUS | US | LV, myocardium, atrium | speckle noise, weak boundaries |
-| Montgomery County CXR | X-ray | lung | large, high contrast (paper's best modality) |
-| Kvasir-SEG + CVC-ClinicDB | Colonoscopy | polyp | two datasets, same object → inter-dataset variance |
-| ISIC 2018 | Dermoscopy | melanoma | large, high contrast, simple boundary |
-| DRIVE + CHASE-DB1 + STARE | Fundus | retinal vessels | **extreme Fourier order** — the H1/H2 stress test |
-| Warwick-QU (GlaS) | Histopathology | gland | textured, ambiguous boundary |
-| EPFL-EM (Lucchi) | Electron Microscopy | mitochondria | small objects, many instances |
+The **MedSAM arm** column comes from the provenance audit and is what makes H3a testable: the subset was
+already, by luck of the modality-coverage criterion, split across both arms. Balance was checked after the
+audit and the subset adjusted so that neither arm is trivially small.
+
+| Dataset | Modality | Targets | Why (attribute regime) | MedSAM arm |
+|---|---|---|---|---|
+| MSD (Task03 Liver, Task09 Spleen, Task07 Pancreas) | CT | liver, spleen, pancreas | large & smooth vs. **low-contrast** (pancreas) | **seen** |
+| CHAOS | CT, T1W-MRI, T2W-MRI | liver, kidney, spleen | **same object, three modalities** — isolates the modality factor | **held out** |
+| ACDC | cine-MRI | LV, RV, myocardium | myocardium = **high aspect-ratio ring** | **held out** |
+| CAMUS | US | LV, myocardium, atrium | speckle noise, weak boundaries | **seen** |
+| Montgomery County CXR | X-ray | lung | large, high contrast (paper's best modality) | **seen** (within "Lung") |
+| Kvasir-SEG | Colonoscopy | polyp | high contrast, simple boundary | **held out** |
+| CVC-ClinicDB | Colonoscopy | polyp | same object, second dataset → inter-dataset variance | not listed |
+| ISIC 2018 | Dermoscopy | melanoma | large, high contrast, simple boundary | **seen** |
+| DRIVE + CHASE-DB1 + STARE | Fundus | retinal vessels | **extreme Fourier order** — the H1/H2 stress test | **held out** (vessels; MedSAM saw only optic disc/cup) |
+| Warwick-QU (GlaS) | Histopathology | gland | textured, ambiguous boundary | **held out** |
+| EPFL-EM (Lucchi) | Electron Microscopy | mitochondria | small objects, many instances | **held out** (modality absent) |
+
+Roughly half the object–modality pairs land on each arm, which is what H3a's difference-in-differences
+test needs. Note that SAM-Med2D cannot be placed on either arm — its corpus is undocumented at dataset
+level — so H3a is estimated for MedSAM and MedSAM2, with SAM-Med2D reported separately and labelled
+`unknown`.
 
 **Sampling protocol (must be pre-registered in the repo before running).** ≤300 masks per object–modality
 target, sampled with a fixed seed, stratified by volume/patient and by relative slice position, so that no
@@ -159,27 +191,52 @@ to PNG. Total ≈ 5,000 unique images / ≈ 7,000 masks.
 
 Two tiers, both required by the rubric ("evaluated on additional data") and by H3.
 
-**Tier A — modalities absent from COSMOS 1050K's 18** (the clean out-of-domain test):
-- **OCT** — retinal fluid / layer segmentation (Duke SD-OCT DME; fallback: an OCT subset of MedSegBench).
-- **PET** — AutoPET-II whole-body FDG lesion segmentation (TCIA; subsample heavily).
-- **Mammography** — CBIS-DDSM mass ROIs (TCIA, public; fallbacks: INbreast, VinDr-Mammo/PhysioNet).
+~~Tier A — modalities absent from COSMOS 1050K's 18.~~ **Withdrawn.** The three modalities originally
+nominated here — OCT, PET and mammography — are all in MedSAM's training corpus. Absence from COSMOS was the
+wrong criterion; see §6.3.
 
-**Tier B — post-2023 datasets in seen modalities** (temporal generalisation): CholecSeg8K (laparoscopy),
-SegThy (thyroid/vessel US), and/or 2–3 datasets from **MedSegBench** (Nature Sci. Data 2024; `pip install
-medsegbench`, 35 standardised 2D datasets) as a low-friction top-up.
+**Tier A′ — modalities absent from *every* published corpus** (the confirmatory test for H3b). Only two
+candidates survive the audit, and each needs a Phase-0 feasibility check:
+- **OCT angiography** — en-face retinal vessel maps (OCTA-500, ROSE). Distinct from the OCT B-scans in
+  MedSAM's corpus, though the adjacency must be stated honestly in the report rather than glossed over.
+- **Panoramic dental radiography** — teeth / jaw segmentation (Tufts Dental Database, DENTEX). X-ray by
+  physics, but a view and anatomy that no corpus in the audit contains.
 
-**Fallback rule.** Any dataset that is not downloadable and usable within Phase 0 (week 1) is dropped and
-replaced from MedSegBench; the substitution is recorded in the repo. No week-3 data emergencies.
+Tier A′ is deliberately small: H3a carries the hypothesis, and Tier A′ only confirms it. If neither dataset
+clears Phase 0, H3a still stands on its own.
 
-### 6.3 Contamination audit (Phase 0, blocking for H3)
+**Tier B — datasets held out by MedSAM but not in COSMOS** (extra held-out-arm mass, essentially free):
+WORD, HaN-Seg, IDRiD, PAPILA, COVID-19 Radiography. These are documented held-out sets, so they strengthen
+H3a's held-out arm without any provenance guesswork. Plus 2–3 datasets from **MedSegBench** (Nature Sci.
+Data 2024; `pip install medsegbench`) as a low-friction top-up.
 
-H3 is only meaningful if we know what the medical models were trained on. **To verify from primary sources**
-(the MedSAM Nature Communications supplementary, the SAM-Med2D paper, the MedSAM2 paper) — *not* from
-secondary summaries, which conflate MedSAM's training list with COSMOS's dataset list:
-1. Exact training-corpus dataset list for MedSAM, SAM-Med2D, MedSAM2.
-2. Intersection with our reproduction subset → each target labelled **seen / unseen / unknown** for each model.
-3. All in-domain results reported with the seen/unseen split made explicit. This audit is itself a
-   contribution: existing medical-SAM benchmarks routinely evaluate on data the models were trained on.
+**Fallback rule.** Any dataset not downloadable and usable within Phase 0 (week 1) is dropped and replaced
+from MedSegBench; the substitution is recorded in the repo. No week-3 data emergencies.
+
+### 6.3 Provenance audit — DONE (Phase 0)
+
+Result recorded machine-readably in `configs/training_corpora.yaml`; consumed by the evaluation code to tag
+every target `seen` / `held_out` / `unknown` per model.
+
+Sources used, all primary: MedSAM's Supplementary Tables 1–4 (Nature Communications 15:654, 2024) give a
+complete dataset-level list with held-out sets marked; SAM-Med2D and SA-Med2D-20M (arXiv:2308.16184,
+arXiv:2311.11969) give totals and a modality count but **no dataset-level list**; MedSAM2's repository names
+only its own curated sets.
+
+Three findings changed the design:
+
+1. **MedSAM's corpus already covers PET, mammography and OCT** (AutoPET and HECKTOR; CDD-CESM; Intraretinal
+   Cystoid Fluid and OCT Images DME). Tier A is void — see above.
+2. **MedSAM publishes its held-out sets**, and the reproduction subset already straddles both arms. H3 was
+   rewritten around that split (H3a), which is more defensible than any modality-level proxy and costs no
+   extra data.
+3. **SAM-Med2D's provenance is undocumented at dataset level**, so no third party can run a clean comparison
+   against it. That is a finding about the field and belongs in the critical discussion, not a gap on our
+   side.
+
+A methodological caution also fell out of the audit: **SAM-Med2D runs at 256×256 while SAM runs at
+1024×1024**, so a naive comparison entangles medical fine-tuning with a 16-fold cut in input pixels. Results
+must either control for input resolution or state the confound explicitly.
 
 ---
 
@@ -256,6 +313,23 @@ structures, Dice is dominated by boundary pixels and HD is dominated by single o
 Boundary IoU and check whether the attribute-dependence conclusion (H1) is metric-dependent — if the
 "boundary complexity hurts" effect vanishes under a boundary-aware metric, that is a substantive finding
 about the original conclusion.
+
+**9.5 The boundary-complexity attribute does not measure what it claims — CONFIRMED.** The paper's second
+termination criterion for the elliptic Fourier order ("the difference in DICE between order F_(a−1) and
+F_(a) is less than 0.1%") assumes the DICE-versus-order curve climbs monotonically. It does not: an EFD fit
+improves in a *staircase*, because a shape with roughly k-fold symmetry puts almost all its energy near
+harmonics k±1 and orders 2…k−2 contribute nothing measurable. The criterion therefore stops at the first
+plateau. Measured on synthetic k-pointed stars (`tests/test_attributes.py`), it fires at **order 2** for
+k = 6, 8 and 14, while DICE > 0.97 is first reached at orders **11**, **13** and not within 25.
+
+With F_a pinned near 2, `F_final = F_a + 2·100·(1 − DICE)` collapses into a low-order fit residual rather
+than an order — consistent with the values up to ~180 in the paper's Fig. 14, which no genuine harmonic
+order would reach. The quantity still ranks shapes monotonically by complexity (circle 1.4 < hexagon 9.6 <
+blunt star 21 < sharp star 106), so the paper's qualitative conclusion may well survive; but its scale is
+uninterpretable, and *the attribute at the centre of H1 and H2 is mislabelled*. **We report both variants**
+(`patience=1` reproduces the paper, `patience=None` searches to the true order) and test whether the sign
+and strength of the Dice–complexity correlation change. If they do, Table 6's headline correlation needs
+restating.
 
 **Improvements to the method / implementation** (also required by the rubric): embedding cache reuse across
 all strategies and jitter seeds (already in the upstream repo for box, extended by us to all six strategies
@@ -369,9 +443,16 @@ reproduction is validated in week 3 — a broken harness would invalidate both.
 
 ## 14. Open items to resolve in Phase 0
 
-1. Confirm TinyGPU account status, `$WORK` quota, and available module stack / conda policy.
-2. Verify download feasibility for every Tier-A dataset (OCT, PET, mammography) — decide within week 1.
-3. Extract the **actual** training-corpus lists of MedSAM / SAM-Med2D / MedSAM2 from primary sources.
+1. ~~Confirm TinyGPU account status, `$WORK` quota, module stack / conda policy.~~ **Done.** Account live;
+   `$WORK` 1000 GB / 5 M inodes (vs. `$HOME` 100 GB / 500 K inodes, so conda envs must live in `$WORK`);
+   partitions `work` (RTX 2080 Ti / 3080), `rtx3080`, `v100`, `a100` (40 GB), all capped at 24 h; cluster
+   provides a `pytorch2.6-py3.12` conda environment as a base. Slurm commands take the `.tinygpu` suffix on
+   the frontend, except `sacct`.
+2. Verify download feasibility for the Tier A′ datasets (OCTA, panoramic dental) — decide within week 1.
+3. ~~Extract the actual training-corpus lists of MedSAM / SAM-Med2D / MedSAM2 from primary sources.~~
+   **Done** — `configs/training_corpora.yaml`; consequences folded into §5 (H3) and §6.
 4. Request Meta SAM 3 licence access on Hugging Face (keeps the stretch goal alive at zero cost).
-5. Confirm whether the report must also be submitted to the chair, or is purely a portfolio artefact.
-6. Decide the repository name and whether it is published under the user's personal GitHub account.
+5. ~~Confirm whether the report must also be submitted to the chair.~~ **Done** — portfolio artefact only,
+   so the README is the primary deliverable and the report PDF is linked from it.
+6. ~~Decide the repository name and account.~~ **Done** — `sam-medical-revisited`, personal GitHub account,
+   local repository initialised.

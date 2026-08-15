@@ -1,0 +1,131 @@
+# Provenance audit of the medical foundation models under comparison.
+#
+# Purpose
+# -------
+# Hypothesis H3 asks whether medical-specialised SAM variants keep their edge on
+# data they were not trained on.  That question is only answerable if we know
+# what each model was trained on.  This file records that, from PRIMARY sources
+# only, and is consumed by the evaluation code to tag every target as
+# seen / held_out / unknown per model.
+#
+# Why primary sources only: secondary summaries of MedSAM's training corpus
+# circulate that are in fact the dataset list of COSMOS 1050K (the Huang et al.
+# paper's own collection).  The two lists are different and confusing them would
+# invalidate H3 entirely.
+#
+# status values
+#   seen      - the dataset was used for training / internal validation
+#   held_out  - the authors explicitly excluded it from training
+#   unknown   - the authors did not publish a dataset-level list
+
+models:
+
+  sam:
+    name: Segment Anything Model (ViT-B / ViT-H)
+    citation: "Kirillov et al., ICCV 2023"
+    training_data: SA-1B
+    training_size: "11M natural images, 1B masks"
+    medical_data: none
+    dataset_list: not_applicable
+    note: >
+      No medical images at all, which is what makes SAM the clean zero-shot
+      baseline in every comparison here.
+
+  medsam:
+    name: MedSAM (ViT-B)
+    citation: "Ma, He, Li, Han, You & Wang, Nature Communications 15:654 (2024)"
+    source: "Supplementary Tables 1-4 of the published paper"
+    training_size: "1,570,263 image-mask pairs"
+    n_modalities: 10
+    modalities: [CT, MR, PET-CT, CXR, Mammography, OCT, Ultrasound, Dermoscopy, Endoscopy, Fundus, Pathology]
+    split_protocol: >
+      "randomly split the dataset into 80%, 10%, and 10% as training, tuning,
+      and validation" at scan level for 3D data.  Datasets marked with * in the
+      supplementary tables were held out entirely and form the external
+      validation set.
+    # ---- Used for training / internal validation ----
+    seen:
+      CT: [AbdomenCT-1K, AMOS-CT, AutoPET, COVID-19 Seg. Challenge, COVID-19-CT-Seg,
+           GLIS-RT, HECKTOR, INSTANCE, KiPA, KiTS, Lymph Nodes, MSD-Colon Tumor,
+           MSD-Hepatic Tumor, MSD-Lung Tumor, MSD-Pancreas, MSD-Spleen,
+           NSCLC Pleural Effusion, NSCLC Radiogenomics, ORG, SegTHOR, TotalSegmentator]
+      MR: [AMOS-MR, ATLAS R2.0, Brain Tumor Dataset Figshare, Brain TR-GammakKnife,
+           BraTS, crossMoDA, FeTA, ISLES, I2CVB, Meningioma-SEG-CLASS, MMs,
+           MSD-Heart, MSD-Prostate, NCI-ISBI, PI-CAI, PPMI, PROMISE,
+           Qin-Prostate-Repeatability, Spine, WMH]
+      CXR: [Chest Xray Masks and Labels, Chest X-Ray (Pneumothorax), COVID-QU-Ex,
+            JSRT, Lung, QaTa-COV19]
+      Mammography: [CDD-CESM]
+      OCT: [Intraretinal Cystoid Fluid, OCT Images (DME)]
+      Ultrasound: [AbdomenUS, Breast Cancer, CAMUS, CT2USforKidneySeg, FH-PS-AOP,
+                   TN-SCUI, Nerve]
+      Dermoscopy: [ISIC]
+      Endoscopy: [BKAI-IGH NeoPolyp, CholecSeg8k, m2caiSeg, PolypGen, RoboTool, sisvse]
+      Fundus: [REFUGE]
+      Pathology: [HuBMAP HPA, HuBMAP Hacking the Kidney]
+    # ---- Explicitly held out (marked * in the supplementary tables) ----
+    held_out:
+      CT: [Adrenal-ACC-Ki67, HCC-TACE-Seg, LNQ2023, StructSeg, WORD]
+      MR: [ACDC, CC-Tumor Heterogeneity, CHAOS, HaN-Seg, QUBIQ]
+      CXR: [COVID-19 Radiography]
+      Ultrasound: [HC]
+      Dermoscopy: [UWaterloo Skin Cancer]
+      Endoscopy: [Kvasir]
+      Fundus: [IDRiD, PAPILA]
+      Pathology: ["GlaS@MICCAI2015"]
+
+  sam_med2d:
+    name: SAM-Med2D (ViT-B + adapter)
+    citation: "Cheng et al., arXiv:2308.16184; dataset SA-Med2D-20M, arXiv:2311.11969"
+    training_size: "4.6M images, 19.7M masks"
+    n_modalities: 10
+    input_resolution: 256
+    dataset_list: unknown
+    note: >
+      CONFOUNDER: SAM-Med2D operates at 256x256 while SAM operates at 1024x1024,
+      so any raw comparison entangles medical fine-tuning with a 16-fold
+      reduction in input pixels.  Must be reported explicitly.
+    limitation: >
+      Neither the model paper nor the dataset paper publishes a dataset-level
+      provenance list, so no third party can determine what SAM-Med2D has seen.
+      Every SAM-Med2D result here is therefore tagged `unknown` rather than
+      assumed clean - a reproducibility gap worth stating in the report.
+
+  medsam2:
+    name: MedSAM2 (Hiera)
+    citation: "Ma et al., 2025; github.com/bowang-lab/MedSAM2"
+    initialised_from: sam2.1_hiera
+    seen:
+      CT: [CT_DeepLesion, "FLARE25 pan-cancer CT"]
+      MR: [LLD-MMRI]
+      Ultrasound: [RVENet]
+    dataset_list: partial
+    note: >
+      Much narrower documented corpus than MedSAM, and built on SAM 2.1, which
+      makes it the cleanest test of "newer backbone + medical data" in the 2x2
+      design - provided the SAM 2.1 control is run alongside.
+
+# ---------------------------------------------------------------------------
+# Consequences for the experimental design (see PLAN.md Sec. 6.2)
+# ---------------------------------------------------------------------------
+findings:
+  - id: F1
+    text: >
+      MedSAM's training corpus already covers PET (AutoPET, HECKTOR),
+      mammography (CDD-CESM) and OCT (Intraretinal Cystoid Fluid, OCT Images
+      DME).  All three were chosen in the original plan precisely because they
+      are absent from COSMOS 1050K's 18 modalities - but absence from COSMOS
+      does not imply absence from MedSAM.  The entire Tier-A design is void.
+  - id: F2
+    text: >
+      MedSAM publishes an explicit held-out set.  Several datasets already in
+      the reproduction subset (CHAOS, ACDC, Kvasir, GlaS/Warwick-QU) sit in it,
+      while others (MSD-Spleen, MSD-Pancreas, MSD-Hepatic, CAMUS, ISIC, JSRT/
+      Lung CXR) are training data.  The subset therefore splits cleanly into a
+      seen and a held-out arm without adding any new data - which is a stronger
+      basis for H3 than a modality-level guess would have been.
+  - id: F3
+    text: >
+      SAM-Med2D's provenance is undocumented at dataset level, so it cannot be
+      placed on either arm.  This is a finding about the field, not a gap in
+      our audit, and belongs in the critical discussion.
