@@ -1,0 +1,6 @@
+Slurm writes job output here.
+
+This file exists so that the directory does, in a fresh clone. The sbatch
+scripts use --output=logs/...  relative to the submission directory, and
+Slurm fails a job outright when it cannot open its output file - with no log
+to say why, because the log is the file it could not open.

@@ -95,3 +95,23 @@ def test_gitignore_anchors_its_directory_patterns():
 def test_the_paper_is_not_committed(tracked):
     """It is copyrighted (Elsevier) and must never reach a public repository."""
     assert not [name for name in tracked if name.lower().endswith(".pdf")]
+
+
+def test_slurm_can_write_its_logs(tracked):
+    """Slurm fails a job outright when it cannot open its output file.
+
+    The sbatch scripts use `--output=logs/...`, relative to the submission
+    directory. If a fresh clone has no logs/ directory the job dies before it
+    starts, and the explanation would have gone into the very file that could
+    not be opened - so the failure arrives with no log at all.
+    """
+    assert "logs/.gitkeep" in tracked, (
+        "logs/ must exist in a clone; keep the .gitkeep negation in .gitignore"
+    )
+
+    for script in (ROOT / "scripts" / "slurm").glob("*.sbatch"):
+        text = script.read_text()
+        if "--output=" in text:
+            assert "--output=logs/" in text, (
+                f"{script.name} writes elsewhere; update this guard or the script"
+            )

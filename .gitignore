@@ -19,9 +19,11 @@ __pycache__/
 *.pth
 *.pt
 
-# Slurm job noise
+# Slurm job noise. The directory itself is tracked: sbatch writes into it
+# and Slurm fails a job that cannot open its output file.
 slurm-*.out
-/logs/
+/logs/*
+!/logs/.gitkeep
 
 # Results: the aggregated CSVs ARE committed (every figure is regenerable from
 # them); only the per-mask raw dumps are excluded.
