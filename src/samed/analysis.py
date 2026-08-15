@@ -17,6 +17,25 @@ method can actually deliver. It is not uniform: it shrinks as a prompt becomes
 less ambiguous, which means the oracle rule does not merely inflate scores, it
 compresses the differences *between* prompting strategies - the very effects the
 paper's conclusions rest on.
+
+S1 means something different
+----------------------------
+For the prompted strategies the prompt names the target, so picking the right
+mask out of the candidates is genuinely the model's job and the gap measures a
+deficiency in it.
+
+Automatic mode names nothing. SAM segments whatever it finds and the outputs
+carry no labels, so its quality head ranks masks by how cleanly they are
+segmented, not by whether they are the kidney - and asking it to identify the
+kidney is asking a question the mode does not answer. The S1 gap therefore is
+not a ranking failure. It measures how much of the reported everything-mode
+performance was supplied by the ground truth in the first place: an S1 oracle
+score says a good mask exists somewhere in the output, not that any procedure
+could find it.
+
+The paper raises exactly this in its discussion - "how is semantics obtained
+from SAM when there is no GT?" - and nonetheless reports S1 DICE as a
+performance figure. The gap puts a number on the objection.
 """
 
 from __future__ import annotations

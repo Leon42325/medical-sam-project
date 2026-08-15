@@ -119,6 +119,16 @@ def main(argv: list[str] | None = None) -> int:
         "conclusions rest on."
     )
 
+    if "S1" in set(selected["strategy"]):
+        print(
+            "\nS1 is not comparable with the rest. Automatic mode names no target, so\n"
+            "its quality head ranks masks by segmentation quality, not by whether they\n"
+            "are the organ being looked for. Read its oracle score as `a good mask\n"
+            "exists in the output`, and its gap as how much of the published\n"
+            "everything-mode performance came from the ground truth supplying the\n"
+            "semantics - not as a ranking failure."
+        )
+
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)
         per_target.to_csv(args.out / "per_target.csv", index=False)

@@ -5,14 +5,57 @@ A reproduction of **Huang et al., "Segment anything model for medical images?"**
 extended with an experiment the paper does not contain: **where does medical fine-tuning
 actually help, and does it survive contact with data the model was not trained on?**
 
-> **Status: in progress.** The pipeline, the protocols and the analysis layer are built and
-> tested; experiments have not been run yet, so no results are reported below. Findings that
-> *are* already established come from auditing the paper and its successors, and each is
-> backed by a regression test or a primary source.
+> **Status: in progress.** First results are in, on CHAOS only — 9 object-modality targets,
+> 40 patients, abdominal organs, SAM ViT-B and ViT-H. Everything below is scoped to that;
+> the remaining datasets, MedSAM and the object-attribute analysis are not done yet.
 
 ---
 
-## Findings so far
+## The main result so far
+
+Huang et al. score SAM by keeping, out of the several masks it returns, **the one that best
+matches the ground truth** (Sec. 3.5). That rule consults the answer at inference time, so
+every published number is an upper bound rather than an attainable score. Re-scoring the same
+predictions with the model's own quality head — the only signal a real user has — costs no
+extra inference, and the difference is large and systematic.
+
+| strategy | oracle (paper's rule) | deployable | gap | 95% CI |
+|---|---|---|---|---|
+| S1 automatic | 0.569 | 0.069 | 0.500 | [0.461, 0.533] |
+| S2 one point | 0.817 | 0.532 | 0.285 | [0.258, 0.312] |
+| S3 five points | 0.843 | 0.693 | 0.150 | [0.135, 0.166] |
+| S4 five ± five points | 0.865 | 0.730 | 0.135 | [0.122, 0.150] |
+| S5 box | 0.933 | 0.909 | 0.024 | [0.021, 0.027] |
+| S6 box + point | 0.931 | 0.903 | 0.029 | [0.025, 0.033] |
+
+*DICE over 2409 prompts per model, cluster-bootstrapped over 40 patients.*
+
+**The gap is not a uniform inflation — it scales with how ambiguous the prompt is, and so it
+compresses exactly the differences the paper's conclusions are about.**
+
+* *Box beats points* — the paper's main prompting conclusion. Under its own rule the box gains
+  +0.120 DICE over a single point; under a deployable rule, **+0.377**. The advantage it
+  reports is a third of the real one.
+* *More points help* — from S2 to S4 the paper's rule gives +0.048; deployable, **+0.198**.
+* *ViT-H beats ViT-B* — **reverses**. Paired on identical prompts, ViT-H is better under the
+  oracle rule on S4 (+0.034, significant) and worse in use (−0.076, significant); on S2 the
+  oracle rule shows no difference while deployable shows −0.055. Under box prompts the paper's
+  conclusion does hold (+0.007). Scale improves the candidates a model generates without
+  improving its ability to tell which one is right — and the oracle rule does that half of the
+  job for it.
+* The gap **grows** with model size under point prompts (S4: 0.080 → 0.190), so it is not an
+  artefact of a weak model.
+
+**S1 is a different statement.** Automatic mode names no target, so its quality head ranks
+masks by how cleanly they are segmented, not by whether they are the organ in question. Its
+0.50 gap is not a ranking failure — it is a measure of how much of the reported
+everything-mode performance was supplied by the ground truth. The paper asks "how is semantics
+obtained from SAM when there is no GT?" in its discussion, and reports S1 DICE as a
+performance figure anyway; 0.569 → 0.069 is the size of that objection.
+
+---
+
+## Findings from auditing the paper and its successors
 
 **1. The paper's boundary-complexity measure does not measure boundary complexity.**
 
@@ -40,15 +83,7 @@ centre of the paper's perception analysis is mislabelled. Both variants are impl
 (`fourier_order(patience=1)` reproduces the paper, `patience=None` searches to the true order)
 so the effect on the correlation analysis can be measured rather than assumed.
 
-**2. Every mask-matching number in the paper is an oracle bound.**
-
-SAM returns several candidate masks per prompt. The paper keeps the one with the highest DICE
-*against the ground truth* — which consults the answer at inference time. No deployment can do
-this. All candidates and the model's own predicted-IoU scores are therefore retained here, and
-the same predictions are re-scored under deployable rules, so the gap can be quantified at the
-cost of one groupby rather than a second inference pass.
-
-**3. The obvious out-of-domain modalities are not out of domain.**
+**2. The obvious out-of-domain modalities are not out of domain.**
 
 The extension originally planned to test medical models on OCT, PET and mammography, chosen
 because none appears among COSMOS 1050K's 18 modalities. Auditing MedSAM's supplementary
@@ -83,9 +118,10 @@ src/samed/
   metrics.py     DICE, JAC, Hausdorff
   data/          preprocessing (paper Sec. 2.2), sampling protocol, verification
   models/        thin adapters over upstream models - no model code
-  cli/           fetch -> embed -> predict
+  analysis.py    selection rules, cluster bootstrap, paired model comparison
+  cli/           fetch -> prepare -> embed -> predict / everything -> analyse
 scripts/     TinyGPU environment setup and Slurm array jobs
-tests/       109 tests, all runnable on a laptop without a GPU
+tests/       177 tests, all runnable on a laptop without a GPU
 ```
 
 Two conventions are load-bearing. Nothing in `samed` imports `torch`, so the analysis layer

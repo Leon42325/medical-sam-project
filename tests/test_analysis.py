@@ -281,3 +281,17 @@ def test_paired_comparison_needs_both_models():
     selected = _two_models(10, 0.0, 0.0)
     with pytest.raises(ValueError, match="need results for both"):
         paired_comparison(selected, baseline="base", other="absent")
+
+
+def test_the_s1_caveat_is_printed_only_when_s1_is_present(tmp_path, capsys):
+    """S1's gap has a different meaning and must not be read as a ranking failure."""
+    for strategy, expected in (("S1", True), ("S5", False)):
+        rows = _candidates(strategy=strategy)
+        path = tmp_path / f"everything-shard-0000-of-0001-{strategy}.csv"
+        with path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+
+        assert analyse_cli.main(["--results", str(path)]) == 0
+        assert ("S1 is not comparable" in capsys.readouterr().out) is expected
