@@ -33,6 +33,7 @@ __all__ = [
     "select_per_prompt",
     "summarise",
     "bootstrap_ci",
+    "paired_comparison",
 ]
 
 #: Columns that together identify one prompt, i.e. one set of candidate masks.
@@ -195,4 +196,64 @@ def summarise(
             "oracle_gap_lo": gap_low,
             "oracle_gap_hi": gap_high,
         })
+    return pd.DataFrame.from_records(records)
+
+
+def paired_comparison(
+    selected: pd.DataFrame,
+    *,
+    baseline: str,
+    other: str,
+    by: Sequence[str] = ("strategy",),
+    cluster: str | None = "patient",
+    seed: int = 0,
+) -> pd.DataFrame:
+    """Difference between two models on the *same* prompts.
+
+    Every model here sees an identical set of prompts, built deterministically
+    from the same ground truth, so the comparison can be paired: the difference
+    is taken prompt by prompt before it is averaged. That removes all the
+    variance due to some organs simply being harder than others, which is the
+    dominant source of spread in the unpaired tables and would otherwise swamp
+    the effect being measured.
+
+    Reported for both selection rules, because they can disagree about the sign.
+    A model that produces better candidate masks while ranking them worse looks
+    superior under the oracle rule and inferior in use - and the ranking is the
+    half a user cannot fix.
+    """
+    keys = [k for k in PROMPT_KEYS if k != "model"]
+    columns = ["dice_oracle", "dice_score"]
+
+    left = selected[selected["model"] == baseline].set_index(keys)[columns]
+    right = selected[selected["model"] == other].set_index(keys)[columns]
+    if left.empty or right.empty:
+        raise ValueError(
+            f"need results for both {baseline!r} and {other!r}; "
+            f"found {sorted(selected['model'].unique())}"
+        )
+
+    paired = right.join(left, how="inner", lsuffix="_other", rsuffix="_baseline")
+    if paired.empty:
+        raise ValueError("the two models share no prompts; were they run on one manifest?")
+    paired = paired.reset_index()
+
+    for column in columns:
+        paired[f"delta_{column}"] = paired[f"{column}_other"] - paired[f"{column}_baseline"]
+
+    records = []
+    for key, group in paired.groupby(list(by), sort=True, dropna=False):
+        key = key if isinstance(key, tuple) else (key,)
+        labels = group[cluster] if cluster and cluster in group else None
+        record = {**dict(zip(by, key)), "n_prompts": len(group)}
+        for column in columns:
+            delta = group[f"delta_{column}"]
+            low, high = bootstrap_ci(delta, clusters=labels, seed=seed)
+            record[f"delta_{column}"] = float(delta.mean())
+            record[f"delta_{column}_lo"] = low
+            record[f"delta_{column}_hi"] = high
+            # An interval clear of zero on both sides is a difference the data
+            # supports; the sign is what the two rules can disagree about.
+            record[f"delta_{column}_sig"] = "yes" if low * high > 0 else "no"
+        records.append(record)
     return pd.DataFrame.from_records(records)

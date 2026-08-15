@@ -13,6 +13,7 @@ from samed.analysis import (
     PROMPT_KEYS,
     bootstrap_ci,
     load_results,
+    paired_comparison,
     select_per_prompt,
     summarise,
 )
@@ -213,7 +214,7 @@ def test_summary_reports_how_many_subjects_back_each_row(results):
 def test_a_multi_model_run_gets_its_own_table(tmp_path, capsys):
     """Whether the oracle gap survives model scale is the question that decides
     how far the criticism reaches, so it needs its own comparison."""
-    rows = _candidates(model="sam_vit_b") + _candidates(model="sam_vit_h", image_id="img1")
+    rows = _candidates(model="sam_vit_b") + _candidates(model="sam_vit_h")
     path = tmp_path / "shard-0000-of-0001.csv"
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
@@ -229,3 +230,54 @@ def test_a_multi_model_run_gets_its_own_table(tmp_path, capsys):
 def test_a_single_model_run_omits_the_comparison(results, capsys):
     assert analyse_cli.main(["--results", str(results)]) == 0
     assert "By model" not in capsys.readouterr().out
+
+
+def _two_models(n_prompts: int, oracle_gain: float, score_gain: float) -> pd.DataFrame:
+    """Prompt-matched results where the two rules can disagree about the sign."""
+    rng = np.random.default_rng(0)
+    rows = []
+    for prompt in range(n_prompts):
+        difficulty = rng.normal(0, 0.25)   # some organs are simply harder
+        for model, gain_o, gain_s in (("base", 0.0, 0.0),
+                                      ("big", oracle_gain, score_gain)):
+            for candidate in range(2):
+                rows.append({
+                    **{key: "x" for key in PROMPT_KEYS},
+                    "model": model, "patient": f"p{prompt % 8}",
+                    "image_id": f"img{prompt}", "candidate": candidate,
+                    "predicted_iou": 1.0 - candidate,
+                    "dice": 0.7 + difficulty + (gain_o if candidate else gain_s),
+                    "jaccard": 0.0, "hd": 0.0, "hd95": 0.0,
+                })
+    return select_per_prompt(pd.DataFrame(rows))
+
+
+def test_pairing_removes_the_variance_from_organ_difficulty():
+    """Unpaired means are swamped by how hard each organ is; the paired
+    difference is not, which is why the comparison is done prompt by prompt."""
+    selected = _two_models(200, oracle_gain=0.05, score_gain=0.05)
+    paired = paired_comparison(selected, baseline="base", other="big")
+
+    assert paired["delta_dice_score"].iloc[0] == pytest.approx(0.05, abs=1e-9)
+    assert paired["delta_dice_score_sig"].iloc[0] == "yes"
+
+    spread = selected.groupby("model")["dice_score"].std().max()
+    interval = paired["delta_dice_score_hi"].iloc[0] - paired["delta_dice_score_lo"].iloc[0]
+    assert interval < spread, "pairing must be tighter than the raw spread"
+
+
+def test_the_two_rules_can_disagree_about_which_model_is_better():
+    """The finding this exists to express: a model can generate better
+    candidates while ranking them worse, which reverses the verdict."""
+    selected = _two_models(200, oracle_gain=0.08, score_gain=-0.06)
+    paired = paired_comparison(selected, baseline="base", other="big")
+
+    assert paired["delta_dice_oracle"].iloc[0] > 0
+    assert paired["delta_dice_score"].iloc[0] < 0
+    assert paired["delta_dice_score_sig"].iloc[0] == "yes"
+
+
+def test_paired_comparison_needs_both_models():
+    selected = _two_models(10, 0.0, 0.0)
+    with pytest.raises(ValueError, match="need results for both"):
+        paired_comparison(selected, baseline="base", other="absent")

@@ -19,7 +19,12 @@ import argparse
 import sys
 from pathlib import Path
 
-from samed.analysis import load_results, select_per_prompt, summarise
+from samed.analysis import (
+    load_results,
+    paired_comparison,
+    select_per_prompt,
+    summarise,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,6 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="a shard CSV, or a directory of them")
     parser.add_argument("--out", type=Path, help="directory for the summary CSVs")
     parser.add_argument("--seed", type=int, default=0, help="bootstrap seed")
+    parser.add_argument("--baseline", help="model to compare the others against, paired per prompt")
     return parser
 
 
@@ -71,6 +77,28 @@ def main(argv: list[str] | None = None) -> int:
             "oracle_gap": ("gap", 8), "oracle_gap_lo": ("gap 95% lo", 12),
             "oracle_gap_hi": ("hi", 8),
         })
+
+    models = sorted(selected["model"].unique())
+    baseline = args.baseline or (models[0] if len(models) > 1 else None)
+    if baseline and len(models) > 1:
+        for model in models:
+            if model == baseline:
+                continue
+            paired = paired_comparison(
+                selected, baseline=baseline, other=model, seed=args.seed
+            )
+            _print(f"{model} minus {baseline}, paired on the same prompts", paired, {
+                "strategy": ("strat", 7), "n_prompts": ("prompts", 9),
+                "delta_dice_oracle": ("d oracle", 10),
+                "delta_dice_oracle_sig": ("sig", 5),
+                "delta_dice_score": ("d deployable", 14),
+                "delta_dice_score_sig": ("sig", 5),
+                "delta_dice_score_lo": ("95% lo", 9),
+                "delta_dice_score_hi": ("hi", 9),
+            })
+            if args.out:
+                args.out.mkdir(parents=True, exist_ok=True)
+                paired.to_csv(args.out / f"paired_{model}_vs_{baseline}.csv", index=False)
 
     _print("Aggregated over targets", per_strategy, {
         "strategy": ("strategy", 10), "n": ("n", 7), "n_clusters": ("patients", 10),
