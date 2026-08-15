@@ -31,14 +31,24 @@ eval "$(conda shell.bash hook)"
 # large collection of small files.
 export CONDA_PKGS_DIRS="$PROJECT/conda/pkgs"
 
-# Clone by absolute path rather than by name: the base environment is the one
-# the `python` module provides, and resolving it by name depends on envs_dirs,
-# which we are deliberately not relying on here.
-BASE_ENV="${BASE_ENV:-$(dirname "$(dirname "$(command -v python)")")}"
+# Clone the cluster's maintained PyTorch environment: it is faster than
+# resolving torch from scratch and is already matched to the local CUDA stack.
+#
+# Name it explicitly. Deriving it from `command -v python` looks tidier and is
+# wrong - after `module load python` that resolves to the conda *base*
+# environment, which has no torch, and the resulting env fails only much later
+# at "No module named 'torch'".
+BASE_ENV="${BASE_ENV:-$(conda info --base)/envs/pytorch2.6-py3.12}"
+
+if [[ ! -d "$BASE_ENV" ]]; then
+    echo "no base environment at $BASE_ENV" >&2
+    echo "available environments:" >&2
+    conda env list >&2
+    echo "set BASE_ENV=<path> to pick one with PyTorch in it" >&2
+    exit 1
+fi
 
 if [[ ! -d "$ENV_PREFIX" ]]; then
-    # Cloning the cluster's maintained PyTorch environment is faster and better
-    # matched to the local CUDA stack than resolving torch from scratch.
     echo "cloning $BASE_ENV -> $ENV_PREFIX (this takes a while)"
     conda create --yes --prefix "$ENV_PREFIX" --clone "$BASE_ENV"
 fi
@@ -48,6 +58,34 @@ echo "python: $(command -v python)"
 
 python -m pip install --no-cache-dir -r "$(dirname "$0")/../requirements-gpu.txt"
 python -m pip install --no-cache-dir -e "$(dirname "$0")/.."
+
+# Verify what was built, rather than announcing success and finding out later.
+# The failure this catches - cloning an environment without PyTorch - stayed
+# hidden until the first GPU job, several steps downstream.
+echo
+echo "checking the environment:"
+python - <<'CHECK'
+import importlib, sys
+
+missing = []
+for module in ("torch", "cv2", "pydicom", "nibabel", "segment_anything", "samed"):
+    try:
+        importlib.import_module(module)
+        print(f"  ok    {module}")
+    except ImportError as error:
+        print(f"  MISSING {module}: {error}")
+        missing.append(module)
+
+try:
+    import torch
+    print(f"  torch {torch.__version__}, CUDA available: {torch.cuda.is_available()}")
+except ImportError:
+    pass
+
+if missing:
+    print(f"\nenvironment is incomplete: {', '.join(missing)}")
+    sys.exit(1)
+CHECK
 
 cat <<EOF
 
