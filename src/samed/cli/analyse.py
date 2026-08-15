@@ -60,13 +60,16 @@ def main(argv: list[str] | None = None) -> int:
     })
 
     _print("Aggregated over targets", per_strategy, {
-        "strategy": ("strategy", 10), "n": ("n", 7),
+        "strategy": ("strategy", 10), "n": ("n", 7), "n_clusters": ("patients", 10),
         "dice_oracle": ("oracle", 9), "dice_score": ("deployable", 12),
         "oracle_gap": ("gap", 8), "oracle_gap_lo": ("gap 95% lo", 12),
         "oracle_gap_hi": ("hi", 8),
     })
 
     print(
+        "\nIntervals are cluster bootstraps over subjects: slices of one scan are\n"
+        "near-copies, so `n` masks carry far less independent evidence than `n`\n"
+        "suggests - `patients` is the count that matters.\n"
         "\n`oracle` is the paper's rule: keep the candidate that scores best against\n"
         "the ground truth. It needs the answer at inference time, so it is an upper\n"
         "bound. `deployable` uses the model's own quality head. The gap is what the\n"

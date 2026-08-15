@@ -106,25 +106,56 @@ def select_per_prompt(results: pd.DataFrame) -> pd.DataFrame:
 def bootstrap_ci(
     values: Sequence[float],
     *,
+    clusters: Sequence | None = None,
     confidence: float = 0.95,
     resamples: int = 2000,
     seed: int = 0,
 ) -> tuple[float, float]:
     """Percentile bootstrap interval for the mean.
 
-    Reported instead of a standard error because per-target DICE distributions
-    are strongly skewed and often bimodal - a prompt either finds the organ or
-    latches onto something else - so a symmetric interval around the mean would
-    misdescribe the spread.
-    """
-    data = np.asarray([v for v in values if np.isfinite(v)], dtype=float)
-    if data.size == 0:
-        return (float("nan"), float("nan"))
-    if data.size == 1:
-        return (float(data[0]), float(data[0]))
+    A bootstrap rather than a standard error because per-target DICE
+    distributions are strongly skewed and often bimodal - a prompt either finds
+    the organ or latches onto something else - so a symmetric interval around
+    the mean would misdescribe the spread.
 
-    rng = np.random.default_rng(seed)
-    means = rng.choice(data, size=(resamples, data.size), replace=True).mean(axis=1)
+    ``clusters`` makes it a *cluster* bootstrap, resampling whole groups rather
+    than individual observations. Pass the subject each measurement came from.
+
+    This is not a refinement, it is the difference between a correct interval
+    and a wrong one. Consecutive slices of one patient's scan are near-copies of
+    each other, so 2409 masks from 40 patients carry nothing like 2409
+    independent observations, and resampling masks individually reports an
+    interval far narrower than the evidence supports. Criticising Huang et al.
+    for treating 191,779 structures as i.i.d. (PLAN.md Sec. 9.2) while doing the
+    same here would be indefensible.
+    """
+    data = np.asarray([v for v in values], dtype=float)
+    finite = np.isfinite(data)
+    if clusters is None:
+        data = data[finite]
+        if data.size == 0:
+            return (float("nan"), float("nan"))
+        if data.size == 1:
+            return (float(data[0]), float(data[0]))
+
+        rng = np.random.default_rng(seed)
+        means = rng.choice(data, size=(resamples, data.size), replace=True).mean(axis=1)
+    else:
+        labels = np.asarray(list(clusters))[finite]
+        data = data[finite]
+        if data.size == 0:
+            return (float("nan"), float("nan"))
+
+        groups = [data[labels == label] for label in np.unique(labels)]
+        if len(groups) == 1:
+            return (float(data.mean()), float(data.mean()))
+
+        rng = np.random.default_rng(seed)
+        indices = rng.integers(0, len(groups), size=(resamples, len(groups)))
+        means = np.array([
+            np.concatenate([groups[i] for i in draw]).mean() for draw in indices
+        ])
+
     tail = (1.0 - confidence) / 2.0
     return tuple(float(v) for v in np.percentile(means, [100 * tail, 100 * (1 - tail)]))
 
@@ -133,17 +164,27 @@ def summarise(
     selected: pd.DataFrame,
     *,
     by: Sequence[str] = ("modality", "target", "strategy"),
+    cluster: str | None = "subject",
     seed: int = 0,
 ) -> pd.DataFrame:
-    """Mean DICE under each rule, with bootstrap intervals, grouped by ``by``."""
+    """Mean DICE under each rule, with cluster-bootstrap intervals.
+
+    ``cluster`` names the column whose groups are resampled - the subject, by
+    default, because slices of one scan are not independent observations. Set it
+    to ``None`` only to reproduce the naive interval, which is narrower than the
+    data justifies. ``n_clusters`` is reported alongside ``n`` so a reader can
+    see how much independent evidence there actually is.
+    """
     records = []
     for key, group in selected.groupby(list(by), sort=True, dropna=False):
         key = key if isinstance(key, tuple) else (key,)
-        low, high = bootstrap_ci(group["dice_score"], seed=seed)
-        gap_low, gap_high = bootstrap_ci(group["oracle_gap"], seed=seed)
+        labels = group[cluster] if cluster and cluster in group else None
+        low, high = bootstrap_ci(group["dice_score"], clusters=labels, seed=seed)
+        gap_low, gap_high = bootstrap_ci(group["oracle_gap"], clusters=labels, seed=seed)
         records.append({
             **dict(zip(by, key)),
             "n": len(group),
+            "n_clusters": int(labels.nunique()) if labels is not None else 0,
             "dice_oracle": group["dice_oracle"].mean(),
             "dice_score": group["dice_score"].mean(),
             "dice_score_lo": low,

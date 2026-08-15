@@ -163,3 +163,47 @@ def test_distinct_shards_load_cleanly(tmp_path):
             writer.writerows(rows)
 
     assert len(load_results(tmp_path)) == 6
+
+
+def _clustered(n_subjects: int, per_subject: int, spread: float, seed: int = 0):
+    """Values that vary a lot between subjects and little within them."""
+    rng = np.random.default_rng(seed)
+    values, labels = [], []
+    for subject in range(n_subjects):
+        centre = rng.normal(0.8, spread)
+        for _ in range(per_subject):
+            values.append(centre + rng.normal(0, 0.001))
+            labels.append(f"p{subject}")
+    return values, labels
+
+
+def test_cluster_bootstrap_is_wider_than_the_naive_one():
+    """The correction our own criticism of the paper demands.
+
+    Near-identical slices within a subject inflate n without adding evidence, so
+    resampling masks individually reports an interval far narrower than the data
+    supports.
+    """
+    values, labels = _clustered(n_subjects=8, per_subject=40, spread=0.08)
+
+    naive_lo, naive_hi = bootstrap_ci(values, seed=0)
+    clustered_lo, clustered_hi = bootstrap_ci(values, clusters=labels, seed=0)
+
+    assert (clustered_hi - clustered_lo) > 4 * (naive_hi - naive_lo)
+
+
+def test_cluster_bootstrap_degenerates_gracefully():
+    assert bootstrap_ci([0.5, 0.6], clusters=["a", "a"]) == (pytest.approx(0.55),) * 2
+    lo, hi = bootstrap_ci([], clusters=[])
+    assert np.isnan(lo) and np.isnan(hi)
+
+
+def test_cluster_bootstrap_ignores_infinite_values():
+    lo, hi = bootstrap_ci([0.5, float("inf"), 0.7], clusters=["a", "a", "b"], seed=0)
+    assert np.isfinite(lo) and np.isfinite(hi)
+
+
+def test_summary_reports_how_many_subjects_back_each_row(results):
+    summary = summarise(select_per_prompt(load_results(results)))
+    assert (summary["n_clusters"] == 1).all(), "the fixture has a single subject"
+    assert "n_clusters" in summary.columns
