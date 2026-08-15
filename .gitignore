@@ -11,9 +11,9 @@ __pycache__/
 !report/build/*.pdf
 
 # Data, embeddings and checkpoints live in $WORK on the cluster, never in git.
-data/
-embeddings/
-checkpoints/
+/data/
+/embeddings/
+/checkpoints/
 *.npy
 *.npz
 *.pth
@@ -21,8 +21,8 @@ checkpoints/
 
 # Slurm job noise
 slurm-*.out
-logs/
+/logs/
 
 # Results: the aggregated CSVs ARE committed (every figure is regenerable from
 # them); only the per-mask raw dumps are excluded.
-results/raw/
+/results/raw/

@@ -1,0 +1,110 @@
+"""Preprocessing protocol of Huang et al. (2024), Sec. 2.2.
+
+The study assumes every dataset has been reduced to single-channel 8-bit PNG
+slices with integer-valued label maps.  That normalisation is what makes 18
+modalities with wildly different value ranges (MRI 0-800, CT -2000..2000,
+others already 0-255) comparable at all, so it has to be reproduced faithfully
+rather than approximated.
+
+Quoted rules, for 3D volumes:
+
+  "(1) Extract slices along the main viewing plane since it has higher
+  resolution. (2) Retain slices with the sum of the pixel values of their labels
+  greater than 50 for any 3D image and label volume. (3) Normalize the image
+  intensities by min-max normalization: I_n = 255 * (I - I_min) / (I_max -
+  I_min), limiting the range to (0, 255) [...] (4) Save images and labels in PNG
+  format."
+
+and for 2D images:
+
+  "(1) Retain images with the sum of the pixel values of their labels greater
+  than 50. (2) Reset the pixel value of the labels according to the object
+  category [...] (3) Convert the format of images and labels from BMP, JPG, TIF,
+  etc. to PNG for achieving consistent data loading."
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+import numpy as np
+
+__all__ = ["min_max_normalise", "slice_label_areas", "select_labelled_slices"]
+
+#: The paper's minimum label size for a slice to be kept (Sec. 2.2).
+MIN_LABEL_AREA = 50
+
+
+def min_max_normalise(
+    array,
+    *,
+    scope: Literal["volume", "slice"] = "volume",
+    axis: int = 0,
+) -> np.ndarray:
+    """Min-max normalise intensities to 0-255 and return ``uint8``.
+
+    ``I_n = 255 * (I - I_min) / (I_max - I_min)`` (Sec. 2.2, step 3).
+
+    AMBIGUITY: for a 3D volume the paper writes that "I means the original
+    normalized image, I_n represents the normalized image.  I_min and I_max are
+    the minimum and maximum intensity of the original image", without saying
+    whether "the original image" is the volume or the individual slice.  The two
+    differ substantially: per-slice normalisation destroys the intensity
+    relationship between slices and would, for instance, make an all-soft-tissue
+    CT slice look like one containing bone.  We default to ``scope="volume"``,
+    which preserves it; ``scope="slice"`` is available for a sensitivity check.
+
+    A constant array maps to all zeros rather than dividing by zero.
+    """
+    data = np.asarray(array, dtype=np.float64)
+
+    if scope == "volume":
+        low, high = data.min(), data.max()
+        scale = high - low
+        scaled = np.zeros_like(data) if scale == 0 else (data - low) / scale
+    elif scope == "slice":
+        moved = np.moveaxis(data, axis, 0)
+        low = moved.min(axis=tuple(range(1, moved.ndim)), keepdims=True)
+        high = moved.max(axis=tuple(range(1, moved.ndim)), keepdims=True)
+        scale = high - low
+        scaled = np.divide(
+            moved - low, scale, out=np.zeros_like(moved), where=scale != 0
+        )
+        scaled = np.moveaxis(scaled, 0, axis)
+    else:  # pragma: no cover - guarded by typing
+        raise ValueError(f"unknown scope {scope!r}")
+
+    return np.clip(np.round(scaled * 255.0), 0, 255).astype(np.uint8)
+
+
+def slice_label_areas(labels, *, axis: int = 0, label_value: int | None = None) -> np.ndarray:
+    """Number of labelled pixels per slice along ``axis``.
+
+    AMBIGUITY: the paper thresholds "the sum of the pixel values of their
+    labels".  Read literally that is the sum of the *category codes*, under which
+    a single pixel of a class encoded as 85 would already exceed the threshold of
+    50 - which cannot be the intent, since the stated purpose is "to ensure that
+    each slice has the corresponding correct label".  We therefore count labelled
+    pixels.  Pass ``label_value`` to count one category rather than all.
+    """
+    data = np.asarray(labels)
+    mask = data != 0 if label_value is None else data == label_value
+    moved = np.moveaxis(mask, axis, 0)
+    return moved.reshape(moved.shape[0], -1).sum(axis=1)
+
+
+def select_labelled_slices(
+    labels,
+    *,
+    axis: int = 0,
+    min_area: int = MIN_LABEL_AREA,
+    label_value: int | None = None,
+) -> np.ndarray:
+    """Indices of slices whose label is large enough to keep (Sec. 2.2, step 2).
+
+    The threshold is strict ("greater than 50"), and it is what removes the
+    partial-volume slices at the top and bottom of an organ where the annotation
+    degenerates to a few pixels.
+    """
+    areas = slice_label_areas(labels, axis=axis, label_value=label_value)
+    return np.flatnonzero(areas > min_area)
