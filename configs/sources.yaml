@@ -1,0 +1,111 @@
+# How each dataset is obtained, and what it must look like once it has landed.
+#
+# `expect_*` values are taken from the source publication, not from whatever
+# arrived - that is the whole point of checking. A dataset that fails a fatal
+# check is rejected and the failure recorded (configs/datasets.yaml, policy).
+#
+# `verified` records whether the download route below was confirmed against the
+# live service while writing this file, or is a landing page that still needs a
+# human to resolve. Unverified routes default to `manual`, so the fetcher prints
+# instructions instead of guessing a URL and silently downloading the wrong thing.
+
+sources:
+
+  chaos:
+    type: zenodo
+    record: 3431873
+    files: [CHAOS_Train_Sets.zip]   # test sets carry no public labels
+    verified: true
+    licence: CC-BY-NC-SA-4.0
+    licence_note: >
+      Non-commercial, share-alike. The data must never be committed or
+      redistributed from this repository; only the manifest of what was used is.
+    expect_label_values: [63, 126, 189, 252]   # liver, right kidney, left kidney, spleen
+    note: >
+      Zenodo publishes per-file MD5s through its API, so the fetcher verifies
+      against the official checksum rather than one we made up.
+
+  isic2018:
+    type: kaggle
+    slug: tschandl/isic2018-challenge-task1-data-segmentation
+    verified: false
+    provenance_rule: 2      # uploader is an ISIC organiser
+    expect_count: 2594
+    expect_label_values: [255]
+    note: Native resolutions vary; the resizing heuristic is the guard here.
+
+  acdc:
+    type: kaggle
+    slug: anhoangvo/acdc-dataset
+    verified: false
+    provenance_rule: 3      # third-party mirror, must pass verification
+    expect_label_values: [1, 2, 3]   # RV cavity, myocardium, LV cavity
+    note: >
+      Expect 150 patients. If the label values are not the original 1/2/3 coding
+      the mirror has been re-encoded and is rejected.
+
+  drive:
+    type: kaggle
+    slug: andrewmvd/drive-digital-retinal-images-for-vessel-extraction
+    verified: false
+    provenance_rule: 3
+    optional: true
+    expect_count: 40
+    expect_resolutions: [[565, 584]]
+    note: >
+      The strictest resolution check in the set, and deliberately so: DRIVE is
+      the dataset most often re-uploaded at a convenient training size, and
+      retinal vessels are the extreme-boundary-complexity stress case for H1.
+
+  # ---------------------------------------------------------------------------
+  # Landing pages that still need a human. Listed rather than guessed, because a
+  # wrong direct URL either 404s or, worse, fetches a different release.
+  # ---------------------------------------------------------------------------
+
+  camus:
+    type: manual
+    url: https://humanheart-project.creatis.insa-lyon.fr/database/#collection/6373703d73e9f0047faa1bc8
+    verified: false
+    citation_required: true
+    note: Downloads anonymously; no account needed. Cite Leclerc et al., IEEE TMI 2019.
+
+  msd:
+    type: manual
+    url: http://medicaldecathlon.com/
+    subsets: [Task03_Liver, Task07_Pancreas, Task09_Spleen]
+    verified: false
+
+  kvasir_seg:
+    type: manual
+    url: https://datasets.simula.no/kvasir-seg/
+    verified: false
+
+  cvc_clinicdb:
+    type: manual
+    url: https://polyp.grand-challenge.org/CVCClinicDB/
+    verified: false
+
+  montgomery:
+    type: manual
+    url: https://openi.nlm.nih.gov/faq#collection
+    verified: false
+
+  stare:
+    type: manual
+    url: https://cecas.clemson.edu/~ahoover/stare/
+    verified: false
+
+  chasedb1:
+    type: manual
+    url: https://blogs.kingston.ac.uk/retinal/chasedb1/
+    verified: false
+
+  warwick_qu:
+    type: manual
+    url: https://warwick.ac.uk/fac/cross_fac/tia/data/glascontest/
+    verified: false
+
+  epfl_em:
+    type: manual
+    url: https://www.epfl.ch/labs/cvlab/data/data-em/
+    verified: false

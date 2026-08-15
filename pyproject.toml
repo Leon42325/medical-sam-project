@@ -12,6 +12,7 @@ dependencies = [
     "pandas>=2.0",
     "pyyaml>=6.0",
     "pyefd>=1.6",
+    "certifi",
 ]
 
 # Model back-ends are installed only on the cluster; see requirements-gpu.txt.
