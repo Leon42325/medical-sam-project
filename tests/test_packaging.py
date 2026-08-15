@@ -20,10 +20,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _tracked_files() -> set[str] | None:
-    """Paths git tracks, or None when this is not a git checkout."""
+    """Paths git would include, or None when this is not a git checkout.
+
+    Tracked files *plus* untracked ones that are not ignored. The question this
+    guard asks is "would a clone get this file", not "has it been committed
+    yet" - a newly written file is fine, a file swallowed by .gitignore is not.
+    Asking the stricter question would turn the suite red on every new file,
+    and a check that is red for benign reasons is one that stops being read.
+    """
     try:
         result = subprocess.run(
-            ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
