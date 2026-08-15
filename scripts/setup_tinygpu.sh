@@ -25,6 +25,13 @@ module load python
 # `conda activate` is a shell function, and a non-interactive script has not
 # sourced the profile that defines it. Without this hook the script dies with
 # "CommandNotFoundError: Your shell has not been properly configured".
+#
+# `set -u` has to be lifted around anything conda: its own activate/deactivate
+# hooks read variables without defaults - the MKL ones in particular - so under
+# `set -u` re-activating an already-active environment aborts with
+# "CONDA_MKL_INTERFACE_LAYER_BACKUP: unbound variable". Our own code stays
+# strict; only the conda calls are exempted.
+set +u
 eval "$(conda shell.bash hook)"
 
 # Keep conda's own caches off $HOME as well - the package cache is another
@@ -54,6 +61,7 @@ if [[ ! -d "$ENV_PREFIX" ]]; then
 fi
 
 conda activate "$ENV_PREFIX"
+set -u
 echo "python: $(command -v python)"
 
 # The cluster's PyTorch environment ships torch without torchvision, and
