@@ -205,3 +205,69 @@ def test_a_failing_source_does_not_abandon_the_others(tmp_path, capsys, monkeypa
     out = capsys.readouterr().out
     assert "ERROR could not reach" in out
     assert "rejected: chaos" in out
+
+
+# --------------------------------------------------------------------------- #
+# The formats the raw datasets actually ship in
+# --------------------------------------------------------------------------- #
+
+
+def test_read_sizes_handles_nifti_volumes(tmp_path):
+    """MSD ships NIfTI; a volume must be measured per slice, like 2D data is."""
+    import nibabel as nib
+
+    volume = np.zeros((320, 260, 7), dtype=np.int16)
+    nib.save(nib.Nifti1Image(volume, np.eye(4)), str(tmp_path / "liver.nii.gz"))
+
+    from samed.data.verify import read_sizes
+
+    sizes = read_sizes(tmp_path / "liver.nii.gz")
+    assert sizes == [(320, 260)] * 7
+
+
+def test_read_sizes_handles_dicom(tmp_path):
+    """CHAOS ships DICOM series; sizes come from the header, not the pixel data."""
+    import pydicom
+    from pydicom.dataset import FileMetaDataset
+
+    meta = FileMetaDataset()
+    meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+    meta.MediaStorageSOPClassUID = pydicom.uid.CTImageStorage
+    meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
+
+    dataset = pydicom.dataset.FileDataset(
+        "slice.dcm", {}, file_meta=meta, preamble=b"\0" * 128
+    )
+    dataset.Rows, dataset.Columns = 512, 400
+    path = tmp_path / "slice.dcm"
+    dataset.save_as(str(path), enforce_file_format=True)
+
+    from samed.data.verify import read_sizes
+
+    assert read_sizes(path) == [(400, 512)]
+
+
+def test_dicom_and_nifti_count_as_images():
+    from samed.data.verify import IMAGE_SUFFIXES
+
+    assert {".dcm", ".nii"} <= IMAGE_SUFFIXES
+
+
+def test_explicit_layout_beats_the_keyword_heuristic(tmp_path):
+    """CHAOS is the case that broke the heuristic: DICOM images, PNG labels
+    living under a directory whose name contains 'ground'."""
+    (tmp_path / "Train_Sets" / "CT" / "1" / "DICOM_anon").mkdir(parents=True)
+    (tmp_path / "Train_Sets" / "CT" / "1" / "Ground").mkdir(parents=True)
+    (tmp_path / "Train_Sets" / "CT" / "1" / "DICOM_anon" / "i0001.dcm").write_bytes(b"x")
+    _write(tmp_path / "Train_Sets" / "CT" / "1" / "Ground" / "l0001.png",
+           np.zeros((8, 8), np.uint8))
+
+    heuristic_images, _ = fetch_cli.find_images(tmp_path)
+    assert [p.name for p in heuristic_images] == ["i0001.dcm"]
+
+    images, labels = fetch_cli.find_images(tmp_path, {
+        "images": "Train_Sets/*/*/DICOM_anon/**/*.dcm",
+        "labels": "Train_Sets/*/*/Ground/*.png",
+    })
+    assert [p.name for p in images] == ["i0001.dcm"]
+    assert [p.name for p in labels] == ["l0001.png"]

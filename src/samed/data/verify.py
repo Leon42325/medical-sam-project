@@ -23,7 +23,28 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
 
-__all__ = ["Check", "VerificationReport", "sha256_of", "inspect_images", "verify_dataset"]
+__all__ = [
+    "Check",
+    "VerificationReport",
+    "IMAGE_SUFFIXES",
+    "sha256_of",
+    "read_sizes",
+    "inspect_images",
+    "verify_dataset",
+]
+
+#: Raster formats readable with OpenCV. These are what the paper's preprocessing
+#: (Sec. 2.2) converts everything *to*; label maps usually arrive as these too.
+RASTER_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"})
+
+#: Formats the raw datasets actually ship in. CHAOS distributes DICOM series,
+#: MSD distributes NIfTI volumes; neither is readable with OpenCV, and treating
+#: them as "not an image" is how a correctly downloaded dataset gets reported as
+#: empty.
+DICOM_SUFFIXES = frozenset({".dcm", ".ima"})
+VOLUME_SUFFIXES = frozenset({".nii", ".gz", ".mha", ".mhd", ".nrrd"})
+
+IMAGE_SUFFIXES = RASTER_SUFFIXES | DICOM_SUFFIXES | VOLUME_SUFFIXES
 
 #: Sizes that essentially never occur natively in medical imaging but are the
 #: standard outputs of a resizing pipeline. Their presence is not proof, but it
@@ -70,25 +91,65 @@ def sha256_of(path: str | Path, *, chunk: int = 1 << 20) -> str:
     return digest.hexdigest()
 
 
+def read_sizes(path: Path) -> list[tuple[int, int]]:
+    """In-plane ``(width, height)`` of every slice in a file.
+
+    A raster or DICOM file yields one entry; a NIfTI volume yields one per
+    slice, so that a 3D dataset is measured in the same units as a 2D one.
+    Headers are read without decoding pixel data where the format allows it.
+    """
+    suffix = "".join(path.suffixes[-2:]).lower() if path.name.endswith(".gz") else path.suffix.lower()
+
+    if suffix in DICOM_SUFFIXES:
+        try:
+            import pydicom
+        except ImportError as error:  # pragma: no cover - environment dependent
+            raise RuntimeError(
+                f"{path.name} is DICOM; install pydicom to verify this dataset"
+            ) from error
+        header = pydicom.dcmread(str(path), stop_before_pixels=True)
+        return [(int(header.Columns), int(header.Rows))]
+
+    if suffix in {".nii", ".nii.gz"} or path.suffix.lower() in VOLUME_SUFFIXES:
+        try:
+            import nibabel
+        except ImportError as error:  # pragma: no cover - environment dependent
+            raise RuntimeError(
+                f"{path.name} is a volume; install nibabel to verify this dataset"
+            ) from error
+        shape = nibabel.load(str(path)).header.get_data_shape()
+        if len(shape) < 3:
+            return [(int(shape[0]), int(shape[1]))]
+        return [(int(shape[0]), int(shape[1]))] * int(shape[2])
+
+    import cv2
+
+    image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if image is None:
+        return []
+    return [(image.shape[1], image.shape[0])]
+
+
 def inspect_images(paths: Iterable[str | Path]) -> tuple[Counter, Counter]:
     """Return counters of ``(width, height)`` sizes and of pixel values seen.
 
-    Pixel values are collected only for single-channel images, which is what
-    label maps are; colour images contribute sizes only.
+    Pixel values are collected only from single-channel raster files, which is
+    what label maps are in every dataset here; volumes and colour images
+    contribute sizes only. Reading label values is the point of the second
+    counter, and it needs actual pixels, so it stays deliberately narrow.
     """
     import cv2
     import numpy as np
 
     sizes: Counter = Counter()
     values: Counter = Counter()
-    for path in paths:
-        image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-        if image is None:
-            continue
-        height, width = image.shape[:2]
-        sizes[(width, height)] += 1
-        if image.ndim == 2:
-            values.update(np.unique(image).tolist())
+    for raw in paths:
+        path = Path(raw)
+        sizes.update(read_sizes(path))
+        if path.suffix.lower() in RASTER_SUFFIXES:
+            image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+            if image is not None and image.ndim == 2:
+                values.update(np.unique(image).tolist())
     return sizes, values
 
 

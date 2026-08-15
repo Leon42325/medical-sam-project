@@ -29,10 +29,9 @@ from pathlib import Path
 
 import yaml
 
-from samed.data.verify import sha256_of, verify_dataset
+from samed.data.verify import IMAGE_SUFFIXES, sha256_of, verify_dataset
 
 CONFIG = Path(__file__).resolve().parents[3] / "configs" / "sources.yaml"
-IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 
 def _ssl_context():
@@ -182,8 +181,24 @@ def extract(archives: list[Path], target: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def find_images(root: Path) -> tuple[list[Path], list[Path]]:
-    """Split the extracted tree into probable images and probable label maps."""
+def find_images(root: Path, layout: dict | None = None) -> tuple[list[Path], list[Path]]:
+    """Split the extracted tree into images and label maps.
+
+    Prefers explicit glob patterns from ``configs/sources.yaml``. Guessing from
+    path keywords is only a fallback for datasets whose layout has not been
+    recorded yet: it cannot tell a DICOM series apart from its PNG annotations
+    without help, and a wrong guess reports a correctly downloaded dataset as
+    empty rather than failing loudly.
+    """
+    if layout:
+        def collect(key: str) -> list[Path]:
+            patterns = layout.get(key) or []
+            if isinstance(patterns, str):
+                patterns = [patterns]
+            return sorted({p for pattern in patterns for p in root.glob(pattern) if p.is_file()})
+
+        return collect("images"), collect("labels")
+
     everything = [p for p in root.rglob("*") if p.suffix.lower() in IMAGE_SUFFIXES]
     labelish = ("mask", "label", "ground", "gt", "segmentation", "annotation")
     labels = [p for p in everything if any(k in str(p).lower() for k in labelish)]
@@ -233,7 +248,7 @@ def handle(name: str, spec: dict, root: Path, *, dry_run: bool, verify_only: boo
         print("    nothing on disk yet")
         return True
 
-    images, labels = find_images(target)
+    images, labels = find_images(target, spec.get("layout"))
     report = verify_dataset(
         name,
         image_paths=images,

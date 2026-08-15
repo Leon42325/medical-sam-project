@@ -13,6 +13,8 @@ dependencies = [
     "pyyaml>=6.0",
     "pyefd>=1.6",
     "certifi",
+    "pydicom>=2.4",
+    "nibabel>=5.0",
 ]
 
 # Model back-ends are installed only on the cluster; see requirements-gpu.txt.
