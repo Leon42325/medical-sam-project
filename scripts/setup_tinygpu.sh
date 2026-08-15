@@ -22,18 +22,29 @@ mkdir -p "$DATA_ROOT" "$EMBED_ROOT" "$CKPT_ROOT" "$PROJECT/logs"
 
 module load python
 
+# `conda activate` is a shell function, and a non-interactive script has not
+# sourced the profile that defines it. Without this hook the script dies with
+# "CommandNotFoundError: Your shell has not been properly configured".
+eval "$(conda shell.bash hook)"
+
 # Keep conda's own caches off $HOME as well - the package cache is another
 # large collection of small files.
-conda config --add envs_dirs "$PROJECT/conda/envs" 2>/dev/null || true
 export CONDA_PKGS_DIRS="$PROJECT/conda/pkgs"
+
+# Clone by absolute path rather than by name: the base environment is the one
+# the `python` module provides, and resolving it by name depends on envs_dirs,
+# which we are deliberately not relying on here.
+BASE_ENV="${BASE_ENV:-$(dirname "$(dirname "$(command -v python)")")}"
 
 if [[ ! -d "$ENV_PREFIX" ]]; then
     # Cloning the cluster's maintained PyTorch environment is faster and better
     # matched to the local CUDA stack than resolving torch from scratch.
-    conda create --yes --prefix "$ENV_PREFIX" --clone pytorch2.6-py3.12
+    echo "cloning $BASE_ENV -> $ENV_PREFIX (this takes a while)"
+    conda create --yes --prefix "$ENV_PREFIX" --clone "$BASE_ENV"
 fi
 
 conda activate "$ENV_PREFIX"
+echo "python: $(command -v python)"
 
 python -m pip install --no-cache-dir -r "$(dirname "$0")/../requirements-gpu.txt"
 python -m pip install --no-cache-dir -e "$(dirname "$0")/.."

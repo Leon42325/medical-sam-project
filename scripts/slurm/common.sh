@@ -19,6 +19,9 @@ CKPT_ROOT="${CKPT_ROOT:-$PROJECT/checkpoints}"
 RESULT_ROOT="${RESULT_ROOT:-$PROJECT/results}"
 
 module load python
+# See scripts/setup_tinygpu.sh: batch jobs run a non-interactive shell, where
+# `conda activate` is undefined until the hook is evaluated.
+eval "$(conda shell.bash hook)"
 conda activate "$ENV_PREFIX"
 
 # Read data from node-local SSD rather than the shared filesystem.  Embeddings
