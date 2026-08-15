@@ -59,6 +59,19 @@ def main(argv: list[str] | None = None) -> int:
         "oracle_gap": ("gap", 8),
     })
 
+    if selected["model"].nunique() > 1:
+        # The comparison that decides how far the oracle-gap finding reaches. If
+        # the gap is a property of prompt ambiguity it holds across model sizes;
+        # if it is an artefact of a weak model it shrinks with scale, and the
+        # criticism applies only to ViT-B.
+        _print("By model", summarise(selected, by=("model", "strategy"), seed=args.seed), {
+            "model": ("model", 12), "strategy": ("strat", 7),
+            "n_clusters": ("patients", 10),
+            "dice_oracle": ("oracle", 9), "dice_score": ("deployable", 12),
+            "oracle_gap": ("gap", 8), "oracle_gap_lo": ("gap 95% lo", 12),
+            "oracle_gap_hi": ("hi", 8),
+        })
+
     _print("Aggregated over targets", per_strategy, {
         "strategy": ("strategy", 10), "n": ("n", 7), "n_clusters": ("patients", 10),
         "dice_oracle": ("oracle", 9), "dice_score": ("deployable", 12),

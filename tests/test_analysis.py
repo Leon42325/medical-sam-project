@@ -208,3 +208,24 @@ def test_summary_reports_how_many_subjects_back_each_row(results):
     summary = summarise(select_per_prompt(load_results(results)))
     assert (summary["n_clusters"] == 1).all(), "the fixture has a single subject"
     assert "n_clusters" in summary.columns
+
+
+def test_a_multi_model_run_gets_its_own_table(tmp_path, capsys):
+    """Whether the oracle gap survives model scale is the question that decides
+    how far the criticism reaches, so it needs its own comparison."""
+    rows = _candidates(model="sam_vit_b") + _candidates(model="sam_vit_h", image_id="img1")
+    path = tmp_path / "shard-0000-of-0001.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    assert analyse_cli.main(["--results", str(tmp_path)]) == 0
+    printed = capsys.readouterr().out
+    assert "By model" in printed
+    assert "sam_vit_b" in printed and "sam_vit_h" in printed
+
+
+def test_a_single_model_run_omits_the_comparison(results, capsys):
+    assert analyse_cli.main(["--results", str(results)]) == 0
+    assert "By model" not in capsys.readouterr().out
