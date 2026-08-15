@@ -298,3 +298,35 @@ def test_overlay_gives_every_label_value_a_visible_colour():
         tinted = _overlay(image, label)[8, 8]
         assert tinted.max() > 60, f"label {value} is invisible: BGR {tinted}"
         assert not np.array_equal(tinted, image[8, 8]), f"label {value} left no tint"
+
+
+def test_overlays_are_spread_over_the_organ_not_taken_from_its_tip(chaos, tmp_path):
+    """Overlays exist to reveal a slice-to-annotation mismatch.
+
+    The first slices to clear the area threshold are the slivers at the very
+    edge of an organ, where a mask is small and ambiguous and a misalignment is
+    almost impossible to see. Sampling across the kept range is what puts the
+    large mid-organ sections in front of a human.
+    """
+    out = tmp_path / "prepared"
+    label = np.zeros((48, 48), np.uint8)
+    label[_disc((48, 48), (24, 24), 8)] = 255
+
+    # Give one CT patient a long run of annotated slices, so "first three" and
+    # "spread over the range" are visibly different choices.
+    base = chaos / "Train_Sets" / "CT" / "1"
+    for index in range(6, 20):
+        _dicom(base / "DICOM_anon" / f"i{index:04d},0000b.dcm",
+               np.full((48, 48), 200 + index, np.int16), instance=index + 1,
+               z=-float(index) * 2.5)
+        cv2.imwrite(str(base / "Ground" / f"liver_GT_{index:03d}.png"), label)
+
+    _run_prepare(chaos, out, save_overlays=3)
+    indices = sorted(
+        int(p.stem.rsplit("_", 1)[1])
+        for p in (out / "overlays").glob("chaos_CT_CT-1_*.png")
+    )
+    assert len(indices) == 3
+    assert max(indices) - min(indices) >= 8, (
+        f"overlays {indices} are clustered; they must span the annotated range"
+    )

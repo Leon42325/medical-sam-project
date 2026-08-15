@@ -28,7 +28,7 @@ import numpy as np
 from samed.data.adapters import Series, available, create
 from samed.data.manifest import ManifestRow, write_manifest
 from samed.data.preprocess import MIN_LABEL_AREA, min_max_normalise, read_pixels
-from samed.data.sampling import stratified_sample
+from samed.data.sampling import bisecting_order, stratified_sample
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -93,28 +93,40 @@ def prepare_series(
     volume = np.stack([read_pixels(path) for path in series.images])
     normalised = min_max_normalise(volume, scope=normalise_scope, axis=0)
 
-    rows: list[ManifestRow] = []
-    written: set[int] = set()
-    overlays_left = save_overlays
-
-    for index, label_path in enumerate(series.labels):
-        label = cv2.imread(str(label_path), cv2.IMREAD_UNCHANGED)
+    def read_label(index: int) -> np.ndarray:
+        label = cv2.imread(str(series.labels[index]), cv2.IMREAD_UNCHANGED)
         if label is None:
-            raise FileNotFoundError(f"could not read label {label_path}")
+            raise FileNotFoundError(f"could not read label {series.labels[index]}")
         if label.ndim == 3:
             label = label[..., 0]
         if label.shape != normalised[index].shape:
             raise ValueError(
                 f"{series.key} slice {index}: image is {normalised[index].shape} but "
-                f"its annotation {label_path.name} is {label.shape}"
+                f"its annotation {series.labels[index].name} is {label.shape}"
             )
+        return label
 
-        present = [
+    def targets_in(label: np.ndarray) -> list[tuple[str, int]]:
+        return [
             (target, value) for target, value in series.targets.items()
             if int((label == value).sum()) > min_label_area
         ]
-        if not present:
-            continue
+
+    # Which slices survive the area threshold has to be known before any overlay
+    # is chosen. Writing the first N kept slices would always sample the very
+    # tip of the organ - the slivers that only just clear the threshold - which
+    # is the least informative view there is for judging whether slices and
+    # annotations line up. Spreading the sample over the organ guarantees that
+    # the large, unambiguous mid-organ sections are among those inspected.
+    kept = [index for index in range(len(series.labels)) if targets_in(read_label(index))]
+    overlay_indices = {kept[position] for position in bisecting_order(len(kept))[:save_overlays]}
+
+    rows: list[ManifestRow] = []
+    written: set[int] = set()
+
+    for index in kept:
+        label = read_label(index)
+        present = targets_in(label)
 
         image_id = f"{series.key}_{index:04d}"
         image_rel = f"{series.dataset}/{image_id}.png"
@@ -124,10 +136,9 @@ def prepare_series(
             _write_png(out / "images" / image_rel, normalised[index])
             _write_png(out / "labels" / label_rel, label)
             written.add(index)
-            if overlays_left > 0:
+            if index in overlay_indices:
                 _write_png(out / "overlays" / f"{image_id}.png",
                            _overlay(normalised[index], label))
-                overlays_left -= 1
 
         for target, value in present:
             rows.append(ManifestRow(
