@@ -56,6 +56,37 @@ fi
 conda activate "$ENV_PREFIX"
 echo "python: $(command -v python)"
 
+# The cluster's PyTorch environment ships torch without torchvision, and
+# `segment_anything` needs it (torchvision.ops supplies the NMS its automatic
+# mask generator runs). Installing it naively is how you break the environment:
+# pip would resolve torchvision from PyPI, decide the installed torch does not
+# satisfy it, and replace a CUDA build with a CPU one - silently, and only
+# visible later as "CUDA available: False" on a GPU node.
+#
+# So: pull from PyTorch's own index for the CUDA tag torch was built against,
+# pin the version that pairs with it, and --no-deps so torch is never touched.
+if ! python -c "import torchvision" 2>/dev/null; then
+    TORCH_VERSION=$(python -c "import torch; print(torch.__version__.split('+')[0])")
+    CUDA_TAG=$(python -c "import torch; v = torch.version.cuda; print('cu' + v.replace('.', '') if v else 'cpu')")
+
+    case "$TORCH_VERSION" in
+        2.4.*) VISION_VERSION=0.19.* ;;
+        2.5.*) VISION_VERSION=0.20.* ;;
+        2.6.*) VISION_VERSION=0.21.* ;;
+        2.7.*) VISION_VERSION=0.22.* ;;
+        *)
+            echo "no known torchvision pairing for torch $TORCH_VERSION" >&2
+            echo "add it to the table in $0, or set VISION_VERSION" >&2
+            exit 1
+            ;;
+    esac
+
+    echo "installing torchvision $VISION_VERSION for torch $TORCH_VERSION ($CUDA_TAG)"
+    python -m pip install --no-cache-dir --no-deps \
+        --index-url "https://download.pytorch.org/whl/$CUDA_TAG" \
+        "torchvision==$VISION_VERSION"
+fi
+
 python -m pip install --no-cache-dir -r "$(dirname "$0")/../requirements-gpu.txt"
 python -m pip install --no-cache-dir -e "$(dirname "$0")/.."
 
@@ -78,7 +109,14 @@ for module in ("torch", "cv2", "pydicom", "nibabel", "segment_anything", "samed"
 
 try:
     import torch
-    print(f"  torch {torch.__version__}, CUDA available: {torch.cuda.is_available()}")
+
+    print(f"  torch {torch.__version__} (CUDA build: {torch.version.cuda or 'none'})")
+    print(f"  CUDA available here: {torch.cuda.is_available()}  "
+          "(False on the frontend is expected - it has no GPU)")
+    if torch.version.cuda is None:
+        print("  WARNING: this is a CPU-only torch build; a dependency install "
+              "has replaced the cluster's CUDA build")
+        missing.append("torch (CUDA build)")
 except ImportError:
     pass
 
