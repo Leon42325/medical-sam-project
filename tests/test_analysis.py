@@ -1,0 +1,135 @@
+"""Tests for the selection rules and the oracle-gap aggregation."""
+
+from __future__ import annotations
+
+import csv
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from samed.analysis import (
+    PROMPT_KEYS,
+    bootstrap_ci,
+    load_results,
+    select_per_prompt,
+    summarise,
+)
+from samed.cli import analyse as analyse_cli
+
+
+def _candidates(**overrides) -> list[dict]:
+    """One prompt's three candidates, mis-ranked by the model's quality head."""
+    base = {
+        "dataset": "chaos", "modality": "CT", "target": "liver", "subject": "CT-1",
+        "image_id": "img0", "slice_index": 0, "label_value": 255, "model": "sam_vit_b",
+        "strategy": "S2", "jitter": "none", "seed": 0,
+        "gt_area": 1000, "pred_area": 1000,
+    }
+    base.update(overrides)
+    rows = []
+    for candidate, (dice, iou) in enumerate([(0.30, 0.90), (0.95, 0.20), (0.50, 0.50)]):
+        rows.append({**base, "candidate": candidate, "predicted_iou": iou,
+                     "dice": dice, "jaccard": dice / (2 - dice),
+                     "hd": 10.0 * (1 - dice), "hd95": 8.0 * (1 - dice)})
+    return rows
+
+
+@pytest.fixture
+def results(tmp_path: Path) -> Path:
+    rows = _candidates()
+    rows += _candidates(image_id="img1", strategy="S5")
+    path = tmp_path / "shard-0000.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    return tmp_path
+
+
+def test_load_reads_every_shard_in_a_directory(results):
+    assert len(load_results(results)) == 6
+    assert len(load_results(results / "shard-0000.csv")) == 6
+
+
+def test_load_rejects_a_table_without_the_needed_columns(tmp_path):
+    (tmp_path / "shard-0000.csv").write_text("a,b\n1,2\n")
+    with pytest.raises(ValueError, match="missing columns"):
+        load_results(tmp_path)
+
+
+def test_load_complains_when_there_is_nothing_to_read(tmp_path):
+    with pytest.raises(FileNotFoundError, match="no result shards"):
+        load_results(tmp_path)
+
+
+def test_each_rule_picks_its_own_candidate(results):
+    selected = select_per_prompt(load_results(results))
+    assert len(selected) == 2, "one row per prompt, not per candidate"
+
+    row = selected[selected["image_id"] == "img0"].iloc[0]
+    assert row["dice_oracle"] == pytest.approx(0.95)   # best against ground truth
+    assert row["dice_score"] == pytest.approx(0.30)    # highest predicted IoU
+    assert row["dice_first"] == pytest.approx(0.30)    # candidate 0
+    assert row["oracle_gap"] == pytest.approx(0.65)
+
+
+def test_distance_metrics_follow_the_chosen_candidate(results):
+    row = select_per_prompt(load_results(results)).iloc[0]
+    assert row["hd_oracle"] == pytest.approx(10.0 * (1 - 0.95))
+    assert row["hd_score"] == pytest.approx(10.0 * (1 - 0.30))
+
+
+def test_the_oracle_is_never_beaten_by_a_deployable_rule():
+    rng = np.random.default_rng(0)
+    rows = []
+    for prompt in range(40):
+        for candidate in range(3):
+            rows.append({
+                **{key: "x" for key in PROMPT_KEYS},
+                "image_id": f"img{prompt}", "candidate": candidate,
+                "predicted_iou": rng.random(), "dice": rng.random(),
+                "jaccard": 0.0, "hd": 0.0, "hd95": 0.0,
+            })
+    selected = select_per_prompt(pd.DataFrame(rows))
+    assert (selected["oracle_gap"] >= -1e-12).all()
+
+
+def test_summary_groups_and_counts(results):
+    summary = summarise(select_per_prompt(load_results(results)))
+    assert set(summary["strategy"]) == {"S2", "S5"}
+    assert summary["n"].sum() == 2
+    assert {"dice_oracle", "dice_score", "oracle_gap", "oracle_gap_lo"} <= set(summary.columns)
+
+
+def test_bootstrap_interval_brackets_the_mean():
+    rng = np.random.default_rng(1)
+    values = rng.normal(0.8, 0.05, size=200)
+    low, high = bootstrap_ci(values, seed=3)
+    assert low < values.mean() < high
+    assert high - low < 0.05, "200 samples should give a tight interval"
+
+
+def test_bootstrap_handles_degenerate_input():
+    assert bootstrap_ci([]) == (pytest.approx(float("nan"), nan_ok=True),) * 2
+    assert bootstrap_ci([0.5]) == (0.5, 0.5)
+
+
+def test_bootstrap_ignores_infinite_distances():
+    """A missed object gives HD of inf; it must not poison an interval."""
+    low, high = bootstrap_ci([0.5, 0.6, float("inf"), 0.55], seed=0)
+    assert np.isfinite(low) and np.isfinite(high)
+
+
+def test_cli_writes_both_tables(results, tmp_path, capsys):
+    out = tmp_path / "tables"
+    assert analyse_cli.main(["--results", str(results), "--out", str(out)]) == 0
+
+    printed = capsys.readouterr().out
+    assert "DICE per object-modality target" in printed
+    assert "Aggregated over targets" in printed
+
+    per_strategy = pd.read_csv(out / "per_strategy.csv")
+    assert set(per_strategy["strategy"]) == {"S2", "S5"}
+    assert (out / "per_target.csv").exists()
