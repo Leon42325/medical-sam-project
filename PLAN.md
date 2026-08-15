@@ -360,6 +360,14 @@ TinyGPU partitions: `work` (RTX 2080 Ti 11 GB / RTX 3080 10 GB), `rtx3080`, `v10
 | Debug + reruns (×2 contingency) | ~30 h |
 | **Total** | **≈ 60–80 GPU-hours** |
 
+**Measured concurrency limit: 4 GPUs.** Array tasks beyond that queue with reason
+`AssocGrpGRES`, so wall time is roughly `shards / 4 x per-shard time` regardless of how many
+shards a job is split into. Sizing arrays much beyond 4 buys nothing but scheduling overhead.
+
+Measured per-shard times on CHAOS (2409 prompts, 16 shards): prompted prediction 43 s (ViT-B)
+and 52 s (ViT-H) on `work`; automatic mode 3:08 and 4:16 on `a100`; ViT-H embedding 1:34 on
+`a100`. Automatic mode is ~4x the cost of everything else combined, as expected.
+
 Everything is chunked into Slurm **array jobs** sized to well under the 24 h limit, with per-chunk resume
 so a preempted job costs one chunk, not one run. ViT-H and Hiera jobs go to `a100`/`v100`; ViT-B jobs run
 fine on `work`/`rtx3080`.
