@@ -115,3 +115,21 @@ def test_slurm_can_write_its_logs(tracked):
             assert "--output=logs/" in text, (
                 f"{script.name} writes elsewhere; update this guard or the script"
             )
+
+
+def test_batch_scripts_do_not_locate_their_setup_through_dollar_zero():
+    """Slurm executes a copy of the script from its spool directory.
+
+    `$0` therefore points into /var/spool, not the repository, and sourcing
+    `$(dirname "$0")/common.sh` finds nothing. Nothing that follows is defined,
+    so the job dies with a cascade of "command not found" (exit 127) that says
+    nothing about the cause.
+    """
+    for script in (ROOT / "scripts" / "slurm").glob("*.sbatch"):
+        text = script.read_text()
+        assert 'source "$(dirname "$0")' not in text, (
+            f"{script.name} resolves its setup through $0; use SLURM_SUBMIT_DIR"
+        )
+        assert "SLURM_SUBMIT_DIR" in text, (
+            f"{script.name} must locate the repository through SLURM_SUBMIT_DIR"
+        )

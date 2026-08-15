@@ -22,7 +22,18 @@
 # Submit from the frontend as:
 #   sbatch.tinygpu scripts/slurm/embed.sbatch
 
-source "$(dirname "$0")/common.sh"
+# Slurm runs a *copy* of this script from its spool directory, so "$0" points
+# there rather than into the repository and `dirname "$0"` cannot find the
+# shared setup. SLURM_SUBMIT_DIR is the directory sbatch was invoked from.
+set -euo pipefail
+PROJECT_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+COMMON="$PROJECT_DIR/scripts/slurm/common.sh"
+if [[ ! -r "$COMMON" ]]; then
+    echo "cannot read $COMMON - submit from the repository root:" >&2
+    echo "  cd <repo> && sbatch.tinygpu scripts/slurm/$(basename "$0")" >&2
+    exit 1
+fi
+source "$COMMON"
 
 MODEL="${MODEL:-sam_vit_b}"
 CHECKPOINT="${CHECKPOINT:-$CKPT_ROOT/sam_vit_b_01ec64.pth}"
