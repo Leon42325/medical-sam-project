@@ -114,7 +114,7 @@ def test_re_encoded_label_values_are_rejected(tmp_path):
         expect_label_values=[63, 126, 189, 252],
     )
     assert not report.ok
-    assert any(c.name == "label values" and not c.passed for c in report.checks)
+    assert any(c.name.startswith("label values") and not c.passed for c in report.checks)
 
 
 def test_correct_label_values_pass(tmp_path):
@@ -271,3 +271,54 @@ def test_explicit_layout_beats_the_keyword_heuristic(tmp_path):
     })
     assert [p.name for p in images] == ["i0001.dcm"]
     assert [p.name for p in labels] == ["l0001.png"]
+
+
+def test_one_dataset_can_carry_two_label_encodings(tmp_path):
+    """CHAOS: liver-only binary masks in CT, four organs at 63/126/189/252 in MR.
+
+    A single flat expectation would fail one arm no matter which one it stated.
+    """
+    ct = tmp_path / "Train_Sets" / "CT" / "1" / "Ground"
+    mr = tmp_path / "Train_Sets" / "MR" / "1" / "T1DUAL" / "Ground"
+
+    binary = np.zeros((64, 64), np.uint8)
+    binary[10:20, 10:20] = 255
+    _write(ct / "liver_GT_000.png", binary)
+
+    multi = np.zeros((64, 64), np.uint8)
+    for offset, value in enumerate([63, 126, 189, 252]):
+        multi[10 + offset * 12 : 20 + offset * 12, 10:20] = value
+    _write(mr / "IMG-0000.png", multi)
+
+    labels = sorted(tmp_path.rglob("Ground/*.png"))
+    report = verify_dataset(
+        "chaos", image_paths=_native_images(tmp_path / "img", 2), label_paths=labels,
+        expect_label_values={
+            "Train_Sets/CT/**/Ground/*.png": [255],
+            "Train_Sets/MR/**/Ground/*.png": [63, 126, 189, 252],
+        },
+        root=tmp_path,
+    )
+    assert report.ok, report.render()
+
+
+def test_label_files_no_pattern_claims_are_reported(tmp_path):
+    """An unmatched file would otherwise be evaluated with an unknown encoding."""
+    _write(tmp_path / "Train_Sets" / "CT" / "1" / "Ground" / "a.png", np.zeros((8, 8), np.uint8))
+    _write(tmp_path / "Elsewhere" / "stray.png", np.zeros((8, 8), np.uint8))
+
+    report = verify_dataset(
+        "chaos", image_paths=_native_images(tmp_path / "img", 1),
+        label_paths=sorted(tmp_path.rglob("*.png")),
+        expect_label_values={"Train_Sets/CT/**/Ground/*.png": None},
+        root=tmp_path,
+    )
+    assert not report.ok
+    assert any(c.name == "every label file is accounted for" for c in report.checks)
+
+
+def test_per_pattern_expectations_need_a_root(tmp_path):
+    with pytest.raises(ValueError, match="need `root`"):
+        verify_dataset("x", image_paths=_native_images(tmp_path, 1),
+                       label_paths=[tmp_path / "img0.png"],
+                       expect_label_values={"**/*.png": [1]})

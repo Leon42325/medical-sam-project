@@ -153,6 +153,31 @@ def inspect_images(paths: Iterable[str | Path]) -> tuple[Counter, Counter]:
     return sizes, values
 
 
+def _check_label_group(
+    report: VerificationReport,
+    label: str,
+    paths: Sequence[str | Path],
+    expected: Sequence[int] | None,
+) -> None:
+    if not paths:
+        report.add(f"labels present ({label})", False, "> 0 files", 0)
+        return
+
+    _, values = inspect_images(paths)
+    found = sorted(int(v) for v in values if v != 0)
+    if expected is None:
+        report.add(
+            f"labels are not binarised ({label})",
+            len(found) > 0,
+            "at least one non-zero category",
+            found,
+            fatal=False,
+        )
+    else:
+        report.add(f"label values ({label})", found == sorted(int(v) for v in expected),
+                   sorted(int(v) for v in expected), found)
+
+
 def verify_dataset(
     name: str,
     *,
@@ -160,7 +185,8 @@ def verify_dataset(
     label_paths: Sequence[str | Path] | None = None,
     expect_count: int | None = None,
     expect_resolutions: Sequence[Sequence[int]] | None = None,
-    expect_label_values: Sequence[int] | None = None,
+    expect_label_values: Sequence[int] | dict[str, Sequence[int]] | None = None,
+    root: str | Path | None = None,
 ) -> VerificationReport:
     """Check a downloaded dataset against what its source publication claims.
 
@@ -168,6 +194,13 @@ def verify_dataset(
     it out when the native resolution varies per image (ISIC, Kvasir-SEG); the
     resizing heuristic still runs and will flag a mirror where every image
     happens to share one square size.
+
+    ``expect_label_values`` is a flat list when one encoding covers the dataset,
+    or a mapping of glob pattern to expected values when it does not - which is
+    not an edge case. CHAOS annotates the liver alone in CT, as a binary mask,
+    but four organs in MR at 63/126/189/252; a single flat expectation is
+    guaranteed to be wrong for one of the two. ``root`` is needed to resolve
+    those patterns and is only required in that case.
     """
     report = VerificationReport(dataset=name)
 
@@ -202,18 +235,20 @@ def verify_dataset(
         )
 
     if label_paths:
-        _, values = inspect_images(label_paths)
-        found = sorted(int(v) for v in values if v != 0)
-        if expect_label_values is not None:
-            expected = sorted(int(v) for v in expect_label_values)
-            report.add("label values", found == expected, expected, found)
+        if isinstance(expect_label_values, dict):
+            if root is None:
+                raise ValueError("per-pattern label expectations need `root` to resolve them")
+            remaining = set(Path(p) for p in label_paths)
+            for pattern, expected in expect_label_values.items():
+                group = sorted(remaining & set(Path(root).glob(pattern)))
+                remaining -= set(group)
+                _check_label_group(report, pattern, group, expected)
+            if remaining:
+                # Files no pattern claimed are a gap in the expectation, not a
+                # silent pass: they would be evaluated with an unknown encoding.
+                report.add("every label file is accounted for", False,
+                           "0 unmatched", f"{len(remaining)} unmatched")
         else:
-            report.add(
-                "labels are not binarised",
-                len(found) > 0,
-                "at least one non-zero category",
-                found,
-                fatal=False,
-            )
+            _check_label_group(report, "all", label_paths, expect_label_values)
 
     return report

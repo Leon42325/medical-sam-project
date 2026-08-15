@@ -160,7 +160,7 @@ def fetch_kaggle(spec: dict, target: Path, *, dry_run: bool) -> list[Path]:
 
 def extract(archives: list[Path], target: Path) -> None:
     for archive in archives:
-        stamp = target / f".extracted-{archive.name}"
+        stamp = target / f".extracted-{archive.name}.stamp"
         if stamp.exists():
             continue
         print(f"    unpack {archive.name}")
@@ -256,6 +256,7 @@ def handle(name: str, spec: dict, root: Path, *, dry_run: bool, verify_only: boo
         expect_count=spec.get("expect_count"),
         expect_resolutions=spec.get("expect_resolutions"),
         expect_label_values=spec.get("expect_label_values"),
+        root=target,
     )
     print(report.render())
 

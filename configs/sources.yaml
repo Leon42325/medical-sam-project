@@ -26,14 +26,15 @@ sources:
       # MR/<patient>/<sequence>/DICOM_anon/<phase>.
       images: "Train_Sets/**/DICOM_anon/**/*.dcm"
       labels: "Train_Sets/**/Ground/*.png"
-    expect_count: 4791
+    expect_count: 4791          # 2874 CT + 1917 MR DICOM slices
+    expect_label_values:
+      # Two encodings in one dataset. Confirmed against the download, not assumed.
+      "Train_Sets/CT/**/Ground/*.png": [255]                 # liver only, binary
+      "Train_Sets/MR/**/Ground/*.png": [63, 126, 189, 252]   # liver, R kidney, L kidney, spleen
     note: >
       Zenodo publishes per-file MD5s through its API, so the fetcher verifies
       against the official checksum rather than one we made up.
-      TODO: expect_label_values is deliberately unset until the CT and MR
-      encodings have been read off the download. CHAOS annotates liver only in
-      CT but four organs in MR, so a single flat set of expected values would be
-      wrong for one of them by construction.
+      20 CT patients; 20 MR patients each with a T1DUAL and a T2SPIR series.
 
   isic2018:
     type: kaggle
