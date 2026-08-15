@@ -27,15 +27,36 @@ same annotation twice, inflating the effective sample size and breaking the
 independence the sampling protocol exists to protect. InPhase is kept as the
 paper's "T1W MRI".
 
-**Slice order comes from the DICOM header, not the filename.** CHAOS CT files
-are named ``i0000,0000b.dcm``; nothing guarantees that lexical order matches
-acquisition order, and a wrong order silently pairs every slice with the wrong
-annotation. ``ImagePositionPatient`` is used where present, ``InstanceNumber``
-otherwise.
+**Slice order comes from the filename index, not the DICOM header.** CT slices
+are ``i0000,0000b.dcm`` … ``i0095,0000b.dcm`` and annotations are
+``liver_GT_000.png`` … ``liver_GT_095.png``: the numbering *is* the
+correspondence, and CHAOS intends it to be used.
+
+Sorting by ``ImagePositionPatient`` instead - anatomical order, which sounds
+safer - reorders the series and destroys that correspondence. It was tried
+first, and it was wrong. The evidence, mean CT number inside the liver mask
+under each pairing:
+
+    patient   by filename   by z-position
+    CT/1          144.8          -87.7
+    CT/19         143.8           59.2
+    CT/21         100.2           11.2
+
+CHAOS CT is portal-venous contrast-enhanced, where liver reads ~100-140 HU. The
+filename pairing is consistent across patients and lands in that range; the
+z-position pairing scatters, including a value in the fat/air range that no
+liver voxel can produce. Consistency across patients is the discriminating
+signal here, not the absolute number.
+
+The failure mode is worth naming, because it is the one this whole pipeline is
+built to avoid: a mispairing raises no error, produces plausible-looking output,
+and turns every DICE score downstream into noise. It was caught by looking at
+image/label overlays, which is why ``prepare`` writes them.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Iterator
 
@@ -60,23 +81,16 @@ CT_TARGETS = {"liver": 255}
 MODALITY = {"CT": "CT", "T1DUAL": "T1W-MRI", "T2SPIR": "T2W-MRI"}
 
 
-def _slice_position(path: Path) -> tuple:
-    """Sort key placing DICOM slices in anatomical order.
+def _slice_index(path: Path) -> tuple:
+    """Sort key following the numbering CHAOS uses to align slices and annotations.
 
-    ``ImagePositionPatient[2]`` is the through-plane coordinate and is the
-    correct key; ``InstanceNumber`` is the fallback for series that omit it. The
-    filename is the last resort and is only ever a tie-break.
+    The leading integer of the filename (``i0042,0000b.dcm`` -> 42,
+    ``liver_GT_042.png`` -> 42) is the index both sides share. Numeric rather
+    than lexical so that a series without zero padding still orders correctly;
+    the name is kept as a tie-break for determinism.
     """
-    import pydicom
-
-    header = pydicom.dcmread(str(path), stop_before_pixels=True)
-    position = getattr(header, "ImagePositionPatient", None)
-    if position is not None and len(position) == 3:
-        return (0, float(position[2]), path.name)
-    instance = getattr(header, "InstanceNumber", None)
-    if instance is not None:
-        return (1, int(instance), path.name)
-    return (2, 0.0, path.name)
+    digits = re.search(r"\d+", path.stem)
+    return (0, int(digits.group()), path.name) if digits else (1, 0, path.name)
 
 
 def pair_slices(images: list[Path], labels: list[Path]) -> tuple[list[Path], list[Path]]:
@@ -90,13 +104,15 @@ def pair_slices(images: list[Path], labels: list[Path]) -> tuple[list[Path], lis
     order.
 
     Name matching is attempted first for exactly that reason, and positional
-    pairing is used only when it cannot apply.
+    pairing is used only when it cannot apply. Both sequences must already be
+    ordered by :func:`_slice_index`; this function does not reorder them,
+    because the ordering *is* the pairing.
     """
     by_stem = {path.stem: path for path in labels}
     if all(image.stem in by_stem for image in images) and len(by_stem) == len(labels):
         return images, [by_stem[image.stem] for image in images]
 
-    ordered_labels = sorted(labels, key=lambda p: p.name)
+    ordered_labels = list(labels)
     if len(images) != len(ordered_labels):
         raise ValueError(
             f"cannot pair {len(images)} slices with {len(ordered_labels)} annotations "
@@ -122,8 +138,8 @@ class ChaosAdapter(Adapter):
         for patient in sorted(ct_root.iterdir(), key=lambda p: _patient_key(p.name)):
             if not patient.is_dir():
                 continue
-            images = sorted((patient / "DICOM_anon").glob("*.dcm"), key=_slice_position)
-            labels = sorted((patient / "Ground").glob("*.png"))
+            images = sorted((patient / "DICOM_anon").glob("*.dcm"), key=_slice_index)
+            labels = sorted((patient / "Ground").glob("*.png"), key=_slice_index)
             if not images or not labels:
                 continue
             images, labels = pair_slices(images, labels)
@@ -145,8 +161,8 @@ class ChaosAdapter(Adapter):
                 dicom_root = folder / "DICOM_anon"
                 # InPhase only; see the module docstring for why OutPhase is dropped.
                 search = dicom_root / "InPhase" if (dicom_root / "InPhase").is_dir() else dicom_root
-                images = sorted(search.glob("*.dcm"), key=_slice_position)
-                labels = sorted((folder / "Ground").glob("*.png"))
+                images = sorted(search.glob("*.dcm"), key=_slice_index)
+                labels = sorted((folder / "Ground").glob("*.png"), key=_slice_index)
                 if not images or not labels:
                     continue
                 images, labels = pair_slices(images, labels)

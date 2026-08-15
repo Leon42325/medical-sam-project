@@ -64,9 +64,12 @@ def chaos(tmp_path: Path) -> Path:
         base = root / "CT" / patient
         for index in range(n_slices):
             # Filenames deliberately do not encode slice order; the header does.
+            # z DESCENDS as the filename index ascends, so anatomical order
+            # and filename order are opposites. The real CHAOS CT series behave
+            # this way, and a fixture where they agree cannot catch a mispairing.
             _dicom(base / "DICOM_anon" / f"i{index:04d},0000b.dcm",
                    np.full(shape, 200 + index * 10, np.int16),
-                   instance=index + 1, z=float(index) * 2.5)
+                   instance=index + 1, z=-float(index) * 2.5)
             label = np.zeros(shape, np.uint8)
             label[_disc(shape, (24, 24), 8)] = 255
             cv2.imwrite(str(_mkdir(base / "Ground") / f"liver_GT_{index:03d}.png"), label)
@@ -141,15 +144,29 @@ def test_outphase_is_dropped(chaos):
     assert not any("OutPhase" in str(p) for p in t1.images)
 
 
-def test_slices_are_ordered_by_header_not_filename(chaos):
+def test_slices_are_ordered_by_filename_index(chaos):
+    """CHAOS aligns i0042.dcm with liver_GT_042.png; the numbering is the pairing.
+
+    Ordering by ImagePositionPatient instead looks safer and is wrong: it
+    reorders the series and silently pairs every slice with someone else's
+    annotation. Measured on the real data, mean liver HU was 144.8 / 143.8 /
+    100.2 under filename pairing (portal-venous liver is ~100-140) against
+    -87.7 / 59.2 / 11.2 under z-position pairing.
+    """
     ct = next(s for s in create("chaos").series(chaos) if s.modality == "CT")
+    assert [p.name for p in ct.images] == [f"i{i:04d},0000b.dcm" for i in range(6)]
+    assert [p.name for p in ct.labels] == [f"liver_GT_{i:03d}.png" for i in range(6)]
+
     import pydicom
 
     positions = [
         float(pydicom.dcmread(str(p), stop_before_pixels=True).ImagePositionPatient[2])
         for p in ct.images
     ]
-    assert positions == sorted(positions)
+    assert positions == sorted(positions, reverse=True), (
+        "the fixture must have anatomical order opposed to filename order, "
+        "otherwise this test cannot distinguish the two"
+    )
 
 
 def test_mr_annotations_are_paired_by_name(chaos):
@@ -264,3 +281,20 @@ def test_prepare_rejects_a_size_mismatch_between_slice_and_annotation(chaos, tmp
     cv2.imwrite(str(ground), np.zeros((16, 16), np.uint8))
     with pytest.raises(ValueError, match="but its annotation"):
         _run_prepare(chaos, tmp_path / "bad")
+
+
+def test_overlay_gives_every_label_value_a_visible_colour():
+    """A label of 255 used to map to pure black, hiding the annotation entirely.
+
+    That is what made a CT mispairing hard to see in the overlays - the check
+    that exists precisely to reveal it.
+    """
+    from samed.cli.prepare import _overlay
+
+    image = np.full((16, 16), 120, np.uint8)
+    for value in (1, 2, 3, 63, 126, 189, 252, 255):
+        label = np.zeros((16, 16), np.uint8)
+        label[4:12, 4:12] = value
+        tinted = _overlay(image, label)[8, 8]
+        assert tinted.max() > 60, f"label {value} is invisible: BGR {tinted}"
+        assert not np.array_equal(tinted, image[8, 8]), f"label {value} left no tint"

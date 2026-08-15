@@ -65,10 +65,16 @@ def _overlay(image: np.ndarray, label: np.ndarray) -> np.ndarray:
     for value in np.unique(label):
         if value == 0:
             continue
-        # int(): label maps are uint8, and the multiplications below overflow
-        # silently in that dtype, collapsing distinct categories to one colour.
+        # int() because label maps are uint8 and these products overflow in
+        # that dtype. Modulo 251 (prime, and coprime to the usual 255-valued
+        # binary masks) rather than 255: under mod 255 a label of 255 maps to
+        # pure black on every channel, which tinted CHAOS CT annotations
+        # invisible - the exact case the overlays exist to inspect. The +40
+        # floor keeps every category clearly coloured against grey tissue.
         code = int(value)
-        colour = np.array([(code * 61) % 255, (code * 137) % 255, (code * 211) % 255])
+        colour = np.array([40 + (code * 61) % 211,
+                           40 + (code * 137) % 211,
+                           40 + (code * 211) % 211])
         canvas[label == value] = (0.55 * canvas[label == value] + 0.45 * colour).astype(np.uint8)
     return canvas
 

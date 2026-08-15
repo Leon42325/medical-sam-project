@@ -35,15 +35,34 @@ __all__ = ["min_max_normalise", "slice_label_areas", "select_labelled_slices"]
 MIN_LABEL_AREA = 50
 
 
+#: Percentiles the intensity range is computed over, instead of the raw extremes.
+#: See the AMBIGUITY note in :func:`min_max_normalise`.
+DEFAULT_CLIP_PERCENTILES = (0.5, 99.5)
+
+
 def min_max_normalise(
     array,
     *,
     scope: Literal["volume", "slice"] = "volume",
     axis: int = 0,
+    clip_percentiles: tuple[float, float] | None = DEFAULT_CLIP_PERCENTILES,
 ) -> np.ndarray:
     """Min-max normalise intensities to 0-255 and return ``uint8``.
 
     ``I_n = 255 * (I - I_min) / (I_max - I_min)`` (Sec. 2.2, step 3).
+
+    AMBIGUITY: taken literally, ``I_min`` and ``I_max`` are the raw extremes, and
+    that is not usable. Medical volumes carry sentinel and artefact values far
+    outside the physical range: CHAOS patient CT/19 spans -1000 to 49944, where
+    no tissue exceeds ~1500 HU. Normalising over that range compresses every real
+    structure into the bottom 3% of the output, and the exported slice is, to the
+    eye and to a segmentation model, black. The paper cannot have done this - its
+    figures show normal contrast - but it does not say what it did instead.
+
+    We therefore take the range over percentiles by default and clip beyond them,
+    which is the standard remedy and leaves images with sentinel values usable.
+    ``clip_percentiles=None`` restores the literal reading, for the sensitivity
+    check reported alongside the results.
 
     AMBIGUITY: for a 3D volume the paper writes that "I means the original
     normalized image, I_n represents the normalized image.  I_min and I_max are
@@ -59,13 +78,25 @@ def min_max_normalise(
     data = np.asarray(array, dtype=np.float64)
 
     if scope == "volume":
-        low, high = data.min(), data.max()
+        if clip_percentiles is None:
+            low, high = data.min(), data.max()
+        else:
+            low, high = np.percentile(data, clip_percentiles)
+            data = np.clip(data, low, high)
         scale = high - low
         scaled = np.zeros_like(data) if scale == 0 else (data - low) / scale
     elif scope == "slice":
         moved = np.moveaxis(data, axis, 0)
-        low = moved.min(axis=tuple(range(1, moved.ndim)), keepdims=True)
-        high = moved.max(axis=tuple(range(1, moved.ndim)), keepdims=True)
+        flat_axes = tuple(range(1, moved.ndim))
+        if clip_percentiles is None:
+            low = moved.min(axis=flat_axes, keepdims=True)
+            high = moved.max(axis=flat_axes, keepdims=True)
+        else:
+            low, high = (
+                np.percentile(moved, p, axis=flat_axes, keepdims=True)
+                for p in clip_percentiles
+            )
+            moved = np.clip(moved, low, high)
         scale = high - low
         scaled = np.divide(
             moved - low, scale, out=np.zeros_like(moved), where=scale != 0

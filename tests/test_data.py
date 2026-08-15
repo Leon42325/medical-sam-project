@@ -174,3 +174,42 @@ def test_sample_rejects_a_non_positive_budget():
 def test_records_expose_the_object_modality_target_key():
     record = MaskRecord("CHAOS", "T1W-MRI", "liver", "p01", "img0", slice_index=3)
     assert record.target_key == ("CHAOS", "T1W-MRI", "liver")
+
+
+def test_normalisation_survives_a_sentinel_outlier():
+    """Regression: CHAOS patient CT/19 spans -1000..49944 and rendered black.
+
+    Real tissue occupies roughly -200..300 HU; a single artefact value four
+    orders of magnitude away compresses everything into the bottom few levels
+    under a literal min-max. Percentile clipping is what keeps the slice usable.
+    """
+    rng = np.random.default_rng(0)
+    volume = rng.normal(50, 60, size=(8, 64, 64))       # soft tissue
+    volume[0, 0, 0] = 49944                             # scanner artefact
+    volume[0, 0, 1] = -1000                             # air
+
+    literal = min_max_normalise(volume, clip_percentiles=None)
+    clipped = min_max_normalise(volume)
+
+    assert literal.std() < 2, "the literal reading collapses the volume, as observed"
+    assert clipped.std() > 30, "percentile clipping must restore usable contrast"
+    assert clipped.min() == 0 and clipped.max() == 255
+
+
+def test_percentile_clipping_leaves_clean_data_alone():
+    """No outliers, so both readings should agree closely."""
+    volume = np.linspace(0, 1000, 8 * 32 * 32).reshape(8, 32, 32)
+    literal = min_max_normalise(volume, clip_percentiles=None)
+    clipped = min_max_normalise(volume)
+    assert abs(float(literal.mean()) - float(clipped.mean())) < 3
+
+
+def test_slice_scope_clipping_is_per_slice():
+    volume = np.stack([
+        np.full((16, 16), 10.0),
+        np.full((16, 16), 500.0),
+    ])
+    volume[0, 0, 0] = 99999
+    out = min_max_normalise(volume, scope="slice", axis=0)
+    assert out.shape == volume.shape
+    assert out[0].max() <= 255 and out[1].max() <= 255
