@@ -47,7 +47,7 @@ def load_results(paths: str | Path | Iterable[str | Path]) -> pd.DataFrame:
     """Read one or more shard CSVs, or every shard under a directory."""
     if isinstance(paths, (str, Path)):
         root = Path(paths)
-        files = sorted(root.rglob("shard-*.csv")) if root.is_dir() else [root]
+        files = sorted(root.rglob("*shard-*.csv")) if root.is_dir() else [root]
     else:
         files = [Path(p) for p in paths]
 

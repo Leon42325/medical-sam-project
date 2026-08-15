@@ -161,7 +161,7 @@ def test_embed_skips_existing_work(workspace):
 def test_predict_emits_one_row_per_candidate(workspace):
     embeddings = _run_embed(workspace)
     out = _run_predict(workspace, embeddings, strategies="S5")
-    rows = _read_rows(out / "shard-0000-of-0001.csv")
+    rows = _read_rows(out / "prompted-shard-0000-of-0001.csv")
 
     assert len(rows) == 4 * 3, "4 objects x 3 candidate masks"
     assert {r["strategy"] for r in rows} == {"S5"}
@@ -172,7 +172,7 @@ def test_predict_emits_one_row_per_candidate(workspace):
 def test_predict_covers_every_requested_strategy(workspace):
     embeddings = _run_embed(workspace)
     out = _run_predict(workspace, embeddings, strategies="S2,S3,S4,S5,S6")
-    rows = _read_rows(out / "shard-0000-of-0001.csv")
+    rows = _read_rows(out / "prompted-shard-0000-of-0001.csv")
     assert {r["strategy"] for r in rows} == {"S2", "S3", "S4", "S5", "S6"}
 
 
@@ -180,7 +180,7 @@ def test_selection_rules_are_recoverable_from_the_table(workspace):
     """The reason masks are not stored: the oracle gap is a groupby on this file."""
     embeddings = _run_embed(workspace)
     out = _run_predict(workspace, embeddings, strategies="S5")
-    rows = _read_rows(out / "shard-0000-of-0001.csv")
+    rows = _read_rows(out / "prompted-shard-0000-of-0001.csv")
 
     by_object: dict[str, list[dict]] = {}
     for row in rows:
@@ -199,13 +199,13 @@ def test_selection_rules_are_recoverable_from_the_table(workspace):
 def test_jitter_changes_the_result_and_is_reproducible(workspace):
     embeddings = _run_embed(workspace)
     clean = _read_rows(_run_predict(
-        workspace, embeddings, strategies="S5", out=workspace / "r-clean") / "shard-0000-of-0001.csv")
+        workspace, embeddings, strategies="S5", out=workspace / "r-clean") / "prompted-shard-0000-of-0001.csv")
     shaken = _read_rows(_run_predict(
         workspace, embeddings, strategies="S5", jitter="20-30", seed=1,
-        out=workspace / "r-jitter") / "shard-0000-of-0001.csv")
+        out=workspace / "r-jitter") / "prompted-shard-0000-of-0001.csv")
     again = _read_rows(_run_predict(
         workspace, embeddings, strategies="S5", jitter="20-30", seed=1,
-        out=workspace / "r-jitter2") / "shard-0000-of-0001.csv")
+        out=workspace / "r-jitter2") / "prompted-shard-0000-of-0001.csv")
 
     assert [r["dice"] for r in shaken] == [r["dice"] for r in again], "same seed, same result"
     assert [r["dice"] for r in shaken] != [r["dice"] for r in clean]
@@ -219,7 +219,7 @@ def test_shards_partition_the_manifest_exactly(workspace):
     for shard in range(3):
         _run_predict(workspace, embeddings, strategies="S5", out=out,
                      shard=shard, num_shards=3)
-        seen += [r["image_id"] for r in _read_rows(out / f"shard-{shard:04d}-of-0003.csv")]
+        seen += [r["image_id"] for r in _read_rows(out / f"prompted-shard-{shard:04d}-of-0003.csv")]
 
     assert sorted(set(seen)) == [f"img{i}" for i in range(4)]
     assert len(seen) == 4 * 3, "no object may be evaluated twice"
@@ -254,8 +254,8 @@ def test_shard_outputs_name_the_split_they_came_from(workspace):
     _run_predict(workspace, embeddings, strategies="S5", out=out, shard=0, num_shards=2)
     _run_predict(workspace, embeddings, strategies="S5", out=out, shard=0, num_shards=4)
 
-    assert sorted(p.name for p in out.glob("shard-*.csv")) == [
-        "shard-0000-of-0002.csv", "shard-0000-of-0004.csv"
+    assert sorted(p.name for p in out.glob("*shard-*.csv")) == [
+        "prompted-shard-0000-of-0002.csv", "prompted-shard-0000-of-0004.csv"
     ]
 
 
@@ -305,7 +305,7 @@ def _run_everything(workspace: Path, **overrides) -> Path:
 def test_everything_keeps_only_the_masks_a_rule_would_pick(workspace):
     """Storing all of them would make Hausdorff dominate the run for no gain."""
     out = _run_everything(workspace)
-    rows = _read_rows(out / "shard-0000-of-0001.csv")
+    rows = _read_rows(out / "everything-shard-0000-of-0001.csv")
 
     assert {r["strategy"] for r in rows} == {"S1"}
     assert all(int(r["n_candidates"]) == 12 for r in rows)
@@ -316,7 +316,7 @@ def test_everything_keeps_only_the_masks_a_rule_would_pick(workspace):
 def test_everything_preserves_both_selection_rules(workspace):
     """The stored subset must reproduce oracle and deployable exactly."""
     out = _run_everything(workspace)
-    rows = _read_rows(out / "shard-0000-of-0001.csv")
+    rows = _read_rows(out / "everything-shard-0000-of-0001.csv")
 
     for image_id in {r["image_id"] for r in rows}:
         group = [r for r in rows if r["image_id"] == image_id]
@@ -329,12 +329,29 @@ def test_everything_preserves_both_selection_rules(workspace):
 def test_everything_shares_the_schema_with_the_prompted_stages(workspace):
     embeddings = _run_embed(workspace)
     prompted = _read_rows(_run_predict(
-        workspace, embeddings, strategies="S5") / "shard-0000-of-0001.csv")
-    automatic = _read_rows(_run_everything(workspace) / "shard-0000-of-0001.csv")
+        workspace, embeddings, strategies="S5") / "prompted-shard-0000-of-0001.csv")
+    automatic = _read_rows(_run_everything(workspace) / "everything-shard-0000-of-0001.csv")
     assert prompted[0].keys() == automatic[0].keys()
 
 
 def test_everything_records_a_non_default_grid_in_the_filename(workspace):
     """Table 5 sweeps the grid; two sweeps must not overwrite each other."""
     out = _run_everything(workspace, points_per_side=64)
-    assert (out / "shard-0000-of-0001-grid64.csv").exists()
+    assert (out / "everything-shard-0000-of-0001-grid64.csv").exists()
+
+
+def test_the_two_prediction_stages_cannot_overwrite_each_other(workspace):
+    """They write into one directory; identical names made S1 skip itself."""
+    embeddings = _run_embed(workspace)
+    shared = workspace / "both"
+    _run_predict(workspace, embeddings, strategies="S5", out=shared,
+                 shard=0, num_shards=16, skip_existing=True)
+    _run_everything(workspace, out=shared, shard=0, num_shards=16, skip_existing=True)
+
+    names = sorted(p.name for p in shared.glob("*shard-*.csv"))
+    assert names == [
+        "everything-shard-0000-of-0016.csv", "prompted-shard-0000-of-0016.csv"
+    ]
+
+    from samed.analysis import load_results
+    assert set(load_results(shared)["strategy"]) == {"S1", "S5"}

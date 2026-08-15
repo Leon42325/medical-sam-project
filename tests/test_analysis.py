@@ -42,7 +42,7 @@ def _candidates(**overrides) -> list[dict]:
 def results(tmp_path: Path) -> Path:
     rows = _candidates()
     rows += _candidates(image_id="img1", strategy="S5")
-    path = tmp_path / "shard-0000.csv"
+    path = tmp_path / "prompted-shard-0000-of-0001.csv"
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
@@ -52,11 +52,11 @@ def results(tmp_path: Path) -> Path:
 
 def test_load_reads_every_shard_in_a_directory(results):
     assert len(load_results(results)) == 6
-    assert len(load_results(results / "shard-0000.csv")) == 6
+    assert len(load_results(results / "prompted-shard-0000-of-0001.csv")) == 6
 
 
 def test_load_rejects_a_table_without_the_needed_columns(tmp_path):
-    (tmp_path / "shard-0000.csv").write_text("a,b\n1,2\n")
+    (tmp_path / "prompted-shard-0000-of-0001.csv").write_text("a,b\n1,2\n")
     with pytest.raises(ValueError, match="missing columns"):
         load_results(tmp_path)
 
@@ -144,7 +144,7 @@ def test_overlapping_shards_are_rejected(tmp_path):
     would just carry double weight in every mean.
     """
     rows = _candidates()
-    for name in ("shard-0000-of-0002.csv", "shard-0000-of-0004.csv"):
+    for name in ("prompted-shard-0000-of-0002.csv", "prompted-shard-0000-of-0004.csv"):
         path = tmp_path / name
         with path.open("w", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
@@ -156,7 +156,7 @@ def test_overlapping_shards_are_rejected(tmp_path):
 
 
 def test_distinct_shards_load_cleanly(tmp_path):
-    for index, name in enumerate(("shard-0000-of-0002.csv", "shard-0001-of-0002.csv")):
+    for index, name in enumerate(("prompted-shard-0000-of-0002.csv", "prompted-shard-0001-of-0002.csv")):
         rows = _candidates(image_id=f"img{index}")
         path = tmp_path / name
         with path.open("w", newline="") as handle:
@@ -215,7 +215,7 @@ def test_a_multi_model_run_gets_its_own_table(tmp_path, capsys):
     """Whether the oracle gap survives model scale is the question that decides
     how far the criticism reaches, so it needs its own comparison."""
     rows = _candidates(model="sam_vit_b") + _candidates(model="sam_vit_h")
-    path = tmp_path / "shard-0000-of-0001.csv"
+    path = tmp_path / "prompted-shard-0000-of-0001.csv"
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()

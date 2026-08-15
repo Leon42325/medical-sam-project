@@ -38,7 +38,12 @@ from pathlib import Path
 
 from samed.data.manifest import read_manifest, shard_of
 from samed.models import create
-from samed.scoring import FIELDS, candidates_any_rule_would_pick, score_candidates
+from samed.scoring import (
+    FIELDS,
+    candidates_any_rule_would_pick,
+    score_candidates,
+    shard_filename,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,10 +67,8 @@ def main(argv: list[str] | None = None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
 
     grid = args.points_per_side
-    destination = args.out / (
-        f"shard-{args.shard:04d}-of-{args.num_shards:04d}"
-        + (f"-grid{grid}" if grid != 32 else "")
-        + ".csv"
+    destination = args.out / shard_filename(
+        "everything", args.shard, args.num_shards, grid=grid if grid != 32 else None
     )
     if args.skip_existing and destination.exists():
         print(f"shard {args.shard}: already done")

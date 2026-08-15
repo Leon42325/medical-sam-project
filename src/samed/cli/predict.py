@@ -33,7 +33,7 @@ import numpy as np
 from samed.data.manifest import read_manifest, shard_of
 from samed.models import create
 from samed.prompts import build_prompt, jitter_prompt
-from samed.scoring import FIELDS, score_candidates
+from samed.scoring import FIELDS, score_candidates, shard_filename
 
 JITTER_LEVELS: dict[str, tuple[float, float] | None] = {
     "none": None,
@@ -81,11 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
 
-    # The shard count belongs in the name. Without it a run split 16 ways
-    # reuses the output of an earlier 8-way run under --skip-existing, and the
-    # two cover different rows: the combined table then double-counts whatever
-    # the coarser shard also contained, silently reweighting the aggregate.
-    destination = args.out / f"shard-{args.shard:04d}-of-{args.num_shards:04d}.csv"
+    destination = args.out / shard_filename("prompted", args.shard, args.num_shards)
     if args.skip_existing and destination.exists():
         print(f"shard {args.shard}: already done")
         return 0

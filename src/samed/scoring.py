@@ -13,7 +13,24 @@ import numpy as np
 
 from samed.metrics import dice, hausdorff, jaccard
 
-__all__ = ["FIELDS", "score_candidates", "candidates_any_rule_would_pick"]
+__all__ = ["FIELDS", "shard_filename", "score_candidates",
+           "candidates_any_rule_would_pick"]
+
+
+def shard_filename(stage: str, shard: int, num_shards: int, **variant) -> str:
+    """Name a result shard so that no two runs can overwrite each other.
+
+    Every dimension that changes what is inside the file has to appear in its
+    name. Two have already caused silent damage: leaving out the shard *count*
+    let a 16-way run reuse an 8-way run's output, and leaving out the *stage*
+    let the automatic mode skip itself because the prompted stage had already
+    written a file of that name into the same directory. Both looked like
+    success - a completed job, no error, wrong or missing data.
+    """
+    parts = [stage, f"shard-{shard:04d}-of-{num_shards:04d}"]
+    parts += [f"{key}{value}" for key, value in sorted(variant.items()) if value is not None]
+    return "-".join(parts) + ".csv"
+
 
 FIELDS = [
     "dataset", "modality", "target", "subject", "patient", "image_id", "slice_index",
