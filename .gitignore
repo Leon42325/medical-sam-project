@@ -1,0 +1,28 @@
+# Local environment
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.DS_Store
+
+# The source paper is copyrighted (Elsevier) - must never be committed.
+*.pdf
+!report/build/*.pdf
+
+# Data, embeddings and checkpoints live in $WORK on the cluster, never in git.
+data/
+embeddings/
+checkpoints/
+*.npy
+*.npz
+*.pth
+*.pt
+
+# Slurm job noise
+slurm-*.out
+logs/
+
+# Results: the aggregated CSVs ARE committed (every figure is regenerable from
+# them); only the per-mask raw dumps are excluded.
+results/raw/

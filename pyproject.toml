@@ -1,0 +1,31 @@
+[project]
+name = "samed"
+version = "0.1.0"
+description = "Reproduction and attribute-level analysis of the Segment Anything Model on medical images"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "opencv-python-headless>=4.8",
+    "scikit-image>=0.21",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "pyefd>=1.6",
+]
+
+# Model back-ends are installed only on the cluster; see requirements-gpu.txt.
+# Nothing in `samed` imports torch, so the analysis layer stays testable on a laptop.
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
