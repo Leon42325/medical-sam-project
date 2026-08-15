@@ -52,6 +52,7 @@ class MaskRecord:
     subject: str
     image_id: str
     slice_index: int | None = None
+    patient: str = ""
 
     @property
     def target_key(self) -> tuple[str, str, str]:

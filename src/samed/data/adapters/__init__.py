@@ -38,6 +38,12 @@ class Series:
     images: list[Path]
     labels: list[Path]
     targets: dict[str, int] = field(default_factory=dict)
+    #: The person scanned. Distinct from ``subject`` because one patient can
+    #: contribute several series - CHAOS images every MR patient with both a
+    #: T1DUAL and a T2SPIR sequence - and those are not independent
+    #: observations. Confidence intervals cluster on this; sampling spreads
+    #: over ``subject``, since the two sequences are genuinely different images.
+    patient: str = ""
 
     def __post_init__(self) -> None:
         if len(self.images) != len(self.labels):
@@ -50,6 +56,10 @@ class Series:
     @property
     def key(self) -> str:
         return f"{self.dataset}_{self.modality}_{self.subject}".replace(" ", "")
+
+    @property
+    def patient_id(self) -> str:
+        return self.patient or self.subject
 
 
 class Adapter(ABC):

@@ -37,7 +37,7 @@ __all__ = [
 
 #: Columns that together identify one prompt, i.e. one set of candidate masks.
 PROMPT_KEYS = [
-    "dataset", "modality", "target", "subject", "image_id",
+    "dataset", "modality", "target", "subject", "patient", "image_id",
     "label_value", "model", "strategy", "jitter", "seed",
 ]
 
@@ -164,13 +164,15 @@ def summarise(
     selected: pd.DataFrame,
     *,
     by: Sequence[str] = ("modality", "target", "strategy"),
-    cluster: str | None = "subject",
+    cluster: str | None = "patient",
     seed: int = 0,
 ) -> pd.DataFrame:
     """Mean DICE under each rule, with cluster-bootstrap intervals.
 
-    ``cluster`` names the column whose groups are resampled - the subject, by
-    default, because slices of one scan are not independent observations. Set it
+    ``cluster`` names the column whose groups are resampled - the patient, by
+    default. Not the series: CHAOS images each MR patient with two sequences,
+    and treating those as two independent subjects overstates the evidence by
+    half again. Set it
     to ``None`` only to reproduce the naive interval, which is narrower than the
     data justifies. ``n_clusters`` is reported alongside ``n`` so a reader can
     see how much independent evidence there actually is.

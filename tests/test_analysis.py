@@ -23,6 +23,7 @@ def _candidates(**overrides) -> list[dict]:
     """One prompt's three candidates, mis-ranked by the model's quality head."""
     base = {
         "dataset": "chaos", "modality": "CT", "target": "liver", "subject": "CT-1",
+        "patient": "CT-1",
         "image_id": "img0", "slice_index": 0, "label_value": 255, "model": "sam_vit_b",
         "strategy": "S2", "jitter": "none", "seed": 0,
         "gt_area": 1000, "pred_area": 1000,

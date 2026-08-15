@@ -330,3 +330,27 @@ def test_overlays_are_spread_over_the_organ_not_taken_from_its_tip(chaos, tmp_pa
     assert max(indices) - min(indices) >= 8, (
         f"overlays {indices} are clustered; they must span the annotated range"
     )
+
+
+def test_both_mr_sequences_belong_to_one_patient(chaos):
+    """T1DUAL and T2SPIR of MR patient 1 are the same person imaged twice.
+
+    Counting them as two subjects would inflate the independent evidence in
+    every confidence interval by half - the same error, one level down, that
+    this project criticises the paper for making over slices.
+    """
+    series = {s.subject: s for s in create("chaos").series(chaos)}
+    assert series["MR-1-T1DUAL"].patient_id == "MR-1"
+    assert series["MR-1-T2SPIR"].patient_id == "MR-1"
+    assert series["CT-1"].patient_id == "CT-1"
+
+    patients = {s.patient_id for s in create("chaos").series(chaos)}
+    subjects = {s.subject for s in create("chaos").series(chaos)}
+    assert len(patients) < len(subjects)
+
+
+def test_the_manifest_carries_the_patient(chaos, tmp_path):
+    rows = _run_prepare(chaos, tmp_path / "prepared")
+    mr = [r for r in rows if r["modality"].endswith("MRI")]
+    assert {r["patient"] for r in mr} == {"MR-1"}
+    assert {r["subject"] for r in mr} == {"MR-1-T1DUAL", "MR-1-T2SPIR"}

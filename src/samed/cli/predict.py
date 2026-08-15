@@ -43,7 +43,7 @@ JITTER_LEVELS: dict[str, tuple[float, float] | None] = {
 }
 
 FIELDS = [
-    "dataset", "modality", "target", "subject", "image_id", "slice_index",
+    "dataset", "modality", "target", "subject", "patient", "image_id", "slice_index",
     "label_value", "model", "strategy", "jitter", "seed", "candidate",
     "predicted_iou", "dice", "jaccard", "hd", "hd95", "gt_area", "pred_area",
 ]
@@ -92,7 +92,7 @@ def score_candidates(masks, ground_truth, row: ManifestRow, *, model: str,
         candidate = masks.masks[index]
         rows.append({
             "dataset": row.dataset, "modality": row.modality, "target": row.target,
-            "subject": row.subject, "image_id": row.image_id,
+            "subject": row.subject, "patient": row.patient, "image_id": row.image_id,
             "slice_index": row.slice_index, "label_value": row.label_value,
             "model": model, "strategy": strategy, "jitter": jitter, "seed": seed,
             "candidate": index,

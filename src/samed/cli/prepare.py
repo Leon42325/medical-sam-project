@@ -143,7 +143,7 @@ def prepare_series(
         for target, value in present:
             rows.append(ManifestRow(
                 dataset=series.dataset, modality=series.modality, target=target,
-                subject=series.subject, image_id=image_id,
+                subject=series.subject, patient=series.patient_id, image_id=image_id,
                 image_path=image_rel, label_path=label_rel,
                 label_value=value, slice_index=index,
             ))

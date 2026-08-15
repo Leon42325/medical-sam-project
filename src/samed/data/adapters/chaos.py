@@ -145,6 +145,7 @@ class ChaosAdapter(Adapter):
             images, labels = pair_slices(images, labels)
             yield Series(
                 dataset="chaos", modality=MODALITY["CT"], subject=f"CT-{patient.name}",
+                patient=f"CT-{patient.name}",
                 images=images, labels=labels, targets=dict(CT_TARGETS),
             )
 
@@ -169,6 +170,8 @@ class ChaosAdapter(Adapter):
                 yield Series(
                     dataset="chaos", modality=MODALITY[sequence],
                     subject=f"MR-{patient.name}-{sequence}",
+                    # T1DUAL and T2SPIR are the same person imaged twice.
+                    patient=f"MR-{patient.name}",
                     images=images, labels=labels, targets=dict(MR_TARGETS),
                 )
 

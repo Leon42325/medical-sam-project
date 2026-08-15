@@ -37,6 +37,7 @@ class ManifestRow:
     label_path: str
     label_value: int
     slice_index: int | None = None
+    patient: str = ""
 
     def as_record(self) -> MaskRecord:
         return MaskRecord(
@@ -46,6 +47,7 @@ class ManifestRow:
             subject=self.subject,
             image_id=self.image_id,
             slice_index=self.slice_index,
+            patient=self.patient,
         )
 
     @property
@@ -80,6 +82,7 @@ def read_manifest(path: str | Path) -> list[ManifestRow]:
                 label_path=r["label_path"],
                 label_value=int(r["label_value"]),
                 slice_index=int(r["slice_index"]) if r.get("slice_index") else None,
+                patient=r.get("patient") or "",
             )
             for r in csv.DictReader(handle)
         ]
