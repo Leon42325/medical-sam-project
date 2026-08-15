@@ -20,10 +20,20 @@ sources:
     licence_note: >
       Non-commercial, share-alike. The data must never be committed or
       redistributed from this repository; only the manifest of what was used is.
-    expect_label_values: [63, 126, 189, 252]   # liver, right kidney, left kidney, spleen
+    layout:
+      # Images are DICOM series, annotations are PNG under a sibling directory.
+      # `**` because CT nests one level deeper than MR: CT/<patient>/DICOM_anon,
+      # MR/<patient>/<sequence>/DICOM_anon/<phase>.
+      images: "Train_Sets/**/DICOM_anon/**/*.dcm"
+      labels: "Train_Sets/**/Ground/*.png"
+    expect_count: 4791
     note: >
       Zenodo publishes per-file MD5s through its API, so the fetcher verifies
       against the official checksum rather than one we made up.
+      TODO: expect_label_values is deliberately unset until the CT and MR
+      encodings have been read off the download. CHAOS annotates liver only in
+      CT but four organs in MR, so a single flat set of expected values would be
+      wrong for one of them by construction.
 
   isic2018:
     type: kaggle
