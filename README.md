@@ -100,7 +100,15 @@ the label-area threshold, and whether box jitter translates or reshapes the box.
 pip install -e ".[dev]" && pytest
 ```
 
-On the cluster, after `scripts/setup_tinygpu.sh`:
+On the cluster, once per login shell — `setup_tinygpu.sh` builds the environment but cannot
+activate it for its caller, so sourcing this is a separate step:
+
+```bash
+bash scripts/setup_tinygpu.sh          # once, ~15 min
+source scripts/activate.sh             # once per shell
+```
+
+then:
 
 ```bash
 python -m samed.cli.fetch --all --dry-run
