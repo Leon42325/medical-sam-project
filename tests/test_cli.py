@@ -161,7 +161,7 @@ def test_embed_skips_existing_work(workspace):
 def test_predict_emits_one_row_per_candidate(workspace):
     embeddings = _run_embed(workspace)
     out = _run_predict(workspace, embeddings, strategies="S5")
-    rows = _read_rows(out / "shard-0000.csv")
+    rows = _read_rows(out / "shard-0000-of-0001.csv")
 
     assert len(rows) == 4 * 3, "4 objects x 3 candidate masks"
     assert {r["strategy"] for r in rows} == {"S5"}
@@ -172,7 +172,7 @@ def test_predict_emits_one_row_per_candidate(workspace):
 def test_predict_covers_every_requested_strategy(workspace):
     embeddings = _run_embed(workspace)
     out = _run_predict(workspace, embeddings, strategies="S2,S3,S4,S5,S6")
-    rows = _read_rows(out / "shard-0000.csv")
+    rows = _read_rows(out / "shard-0000-of-0001.csv")
     assert {r["strategy"] for r in rows} == {"S2", "S3", "S4", "S5", "S6"}
 
 
@@ -180,7 +180,7 @@ def test_selection_rules_are_recoverable_from_the_table(workspace):
     """The reason masks are not stored: the oracle gap is a groupby on this file."""
     embeddings = _run_embed(workspace)
     out = _run_predict(workspace, embeddings, strategies="S5")
-    rows = _read_rows(out / "shard-0000.csv")
+    rows = _read_rows(out / "shard-0000-of-0001.csv")
 
     by_object: dict[str, list[dict]] = {}
     for row in rows:
@@ -199,13 +199,13 @@ def test_selection_rules_are_recoverable_from_the_table(workspace):
 def test_jitter_changes_the_result_and_is_reproducible(workspace):
     embeddings = _run_embed(workspace)
     clean = _read_rows(_run_predict(
-        workspace, embeddings, strategies="S5", out=workspace / "r-clean") / "shard-0000.csv")
+        workspace, embeddings, strategies="S5", out=workspace / "r-clean") / "shard-0000-of-0001.csv")
     shaken = _read_rows(_run_predict(
         workspace, embeddings, strategies="S5", jitter="20-30", seed=1,
-        out=workspace / "r-jitter") / "shard-0000.csv")
+        out=workspace / "r-jitter") / "shard-0000-of-0001.csv")
     again = _read_rows(_run_predict(
         workspace, embeddings, strategies="S5", jitter="20-30", seed=1,
-        out=workspace / "r-jitter2") / "shard-0000.csv")
+        out=workspace / "r-jitter2") / "shard-0000-of-0001.csv")
 
     assert [r["dice"] for r in shaken] == [r["dice"] for r in again], "same seed, same result"
     assert [r["dice"] for r in shaken] != [r["dice"] for r in clean]
@@ -219,7 +219,7 @@ def test_shards_partition_the_manifest_exactly(workspace):
     for shard in range(3):
         _run_predict(workspace, embeddings, strategies="S5", out=out,
                      shard=shard, num_shards=3)
-        seen += [r["image_id"] for r in _read_rows(out / f"shard-{shard:04d}.csv")]
+        seen += [r["image_id"] for r in _read_rows(out / f"shard-{shard:04d}-of-0003.csv")]
 
     assert sorted(set(seen)) == [f"img{i}" for i in range(4)]
     assert len(seen) == 4 * 3, "no object may be evaluated twice"
@@ -241,3 +241,19 @@ def test_save_masks_every_stores_a_sample(workspace):
     out = _run_predict(workspace, embeddings, strategies="S5", save_masks_every=2)
     saved = sorted(p.name for p in (out / "masks").glob("*.npz"))
     assert saved == ["stub__CT__square__img0__S5.npz", "stub__CT__square__img2__S5.npz"]
+
+
+def test_shard_outputs_name_the_split_they_came_from(workspace):
+    """A 16-way run must not silently reuse an 8-way run's shard 0.
+
+    The two cover different rows, so --skip-existing accepting the stale file
+    leaves the combined table double-counting whatever both contained.
+    """
+    embeddings = _run_embed(workspace)
+    out = workspace / "named"
+    _run_predict(workspace, embeddings, strategies="S5", out=out, shard=0, num_shards=2)
+    _run_predict(workspace, embeddings, strategies="S5", out=out, shard=0, num_shards=4)
+
+    assert sorted(p.name for p in out.glob("shard-*.csv")) == [
+        "shard-0000-of-0002.csv", "shard-0000-of-0004.csv"
+    ]

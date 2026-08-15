@@ -57,6 +57,20 @@ def load_results(paths: str | Path | Iterable[str | Path]) -> pd.DataFrame:
     missing = set(PROMPT_KEYS + ["candidate", "predicted_iou", "dice"]) - set(frame.columns)
     if missing:
         raise ValueError(f"result files are missing columns: {sorted(missing)}")
+
+    # Shards must partition the manifest. If they overlap - the usual cause is a
+    # stale file from a run split a different number of ways - the duplicated
+    # prompts are silently over-weighted in every mean that follows, so this is
+    # an error rather than something to deduplicate quietly.
+    duplicated = frame.duplicated(subset=PROMPT_KEYS + ["candidate"])
+    if duplicated.any():
+        example = frame.loc[duplicated, PROMPT_KEYS].iloc[0].to_dict()
+        raise ValueError(
+            f"{int(duplicated.sum())} duplicated candidate rows across "
+            f"{len(files)} shard file(s); shards must not overlap. "
+            f"First duplicate: {example}. "
+            "Check for result files left over from a different --num-shards."
+        )
     return frame
 
 

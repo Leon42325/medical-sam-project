@@ -133,3 +133,33 @@ def test_cli_writes_both_tables(results, tmp_path, capsys):
     per_strategy = pd.read_csv(out / "per_strategy.csv")
     assert set(per_strategy["strategy"]) == {"S2", "S5"}
     assert (out / "per_target.csv").exists()
+
+
+def test_overlapping_shards_are_rejected(tmp_path):
+    """The exact accident this guards: shard files from two different splits.
+
+    Deduplicating quietly would be worse than failing - the duplicated prompts
+    would just carry double weight in every mean.
+    """
+    rows = _candidates()
+    for name in ("shard-0000-of-0002.csv", "shard-0000-of-0004.csv"):
+        path = tmp_path / name
+        with path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="duplicated candidate rows"):
+        load_results(tmp_path)
+
+
+def test_distinct_shards_load_cleanly(tmp_path):
+    for index, name in enumerate(("shard-0000-of-0002.csv", "shard-0001-of-0002.csv")):
+        rows = _candidates(image_id=f"img{index}")
+        path = tmp_path / name
+        with path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+
+    assert len(load_results(tmp_path)) == 6
