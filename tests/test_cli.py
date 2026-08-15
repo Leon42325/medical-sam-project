@@ -257,3 +257,84 @@ def test_shard_outputs_name_the_split_they_came_from(workspace):
     assert sorted(p.name for p in out.glob("shard-*.csv")) == [
         "shard-0000-of-0002.csv", "shard-0000-of-0004.csv"
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Everything mode (S1)
+# --------------------------------------------------------------------------- #
+
+
+class _StubEverything(_StubModel):
+    """Emits many masks per image, as the automatic generator does."""
+
+    name = "stub_everything"
+    supports = frozenset({"points", "box", "everything"})
+
+    def everything(self, image, points_per_side: int = 32):
+        height, width = image.shape[:2]
+        candidates, scores = [], []
+        for index in range(12):
+            canvas = np.zeros((height, width), dtype=bool)
+            size = 4 + index * 3
+            canvas[8 : 8 + size, 10 : 10 + size] = True
+            candidates.append(canvas)
+            # The quality head prefers the largest, which is not the best match.
+            scores.append(0.1 + index / 12)
+        return MaskSet(np.stack(candidates), np.array(scores, dtype=np.float32),
+                       self.name, "S1")
+
+
+register("stub_everything")(_StubEverything)
+
+
+def _run_everything(workspace: Path, **overrides) -> Path:
+    from samed.cli import everything as everything_cli
+
+    out = overrides.pop("out", workspace / "s1")
+    argv = [
+        "--model", "stub_everything", "--checkpoint", "none",
+        "--manifest", str(workspace / "manifest.csv"),
+        "--images", str(workspace / "images"), "--labels", str(workspace / "labels"),
+        "--out", str(out), "--device", "cpu",
+    ]
+    argv += _flags(overrides)
+    assert everything_cli.main(argv) == 0
+    return out
+
+
+def test_everything_keeps_only_the_masks_a_rule_would_pick(workspace):
+    """Storing all of them would make Hausdorff dominate the run for no gain."""
+    out = _run_everything(workspace)
+    rows = _read_rows(out / "shard-0000-of-0001.csv")
+
+    assert {r["strategy"] for r in rows} == {"S1"}
+    assert all(int(r["n_candidates"]) == 12 for r in rows)
+    per_object = len(rows) / len({r["image_id"] for r in rows})
+    assert per_object <= 4, "at most one row per selection rule"
+
+
+def test_everything_preserves_both_selection_rules(workspace):
+    """The stored subset must reproduce oracle and deployable exactly."""
+    out = _run_everything(workspace)
+    rows = _read_rows(out / "shard-0000-of-0001.csv")
+
+    for image_id in {r["image_id"] for r in rows}:
+        group = [r for r in rows if r["image_id"] == image_id]
+        oracle = max(float(r["dice"]) for r in group)
+        deployed = float(max(group, key=lambda r: float(r["predicted_iou"]))["dice"])
+        assert oracle >= deployed
+        assert any(float(r["candidate"]) == 0 for r in group), "the naive rule needs index 0"
+
+
+def test_everything_shares_the_schema_with_the_prompted_stages(workspace):
+    embeddings = _run_embed(workspace)
+    prompted = _read_rows(_run_predict(
+        workspace, embeddings, strategies="S5") / "shard-0000-of-0001.csv")
+    automatic = _read_rows(_run_everything(workspace) / "shard-0000-of-0001.csv")
+    assert prompted[0].keys() == automatic[0].keys()
+
+
+def test_everything_records_a_non_default_grid_in_the_filename(workspace):
+    """Table 5 sweeps the grid; two sweeps must not overwrite each other."""
+    out = _run_everything(workspace, points_per_side=64)
+    assert (out / "shard-0000-of-0001-grid64.csv").exists()

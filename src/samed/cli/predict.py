@@ -30,10 +30,10 @@ from pathlib import Path
 
 import numpy as np
 
-from samed.data.manifest import ManifestRow, read_manifest, shard_of
-from samed.metrics import dice, hausdorff, jaccard
+from samed.data.manifest import read_manifest, shard_of
 from samed.models import create
 from samed.prompts import build_prompt, jitter_prompt
+from samed.scoring import FIELDS, score_candidates
 
 JITTER_LEVELS: dict[str, tuple[float, float] | None] = {
     "none": None,
@@ -41,13 +41,6 @@ JITTER_LEVELS: dict[str, tuple[float, float] | None] = {
     "10-20": (10.0, 20.0),
     "20-30": (20.0, 30.0),
 }
-
-FIELDS = [
-    "dataset", "modality", "target", "subject", "patient", "image_id", "slice_index",
-    "label_value", "model", "strategy", "jitter", "seed", "candidate",
-    "predicted_iou", "dice", "jaccard", "hd", "hd95", "gt_area", "pred_area",
-]
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -82,29 +75,6 @@ def load_mask(path: Path, label_value: int) -> np.ndarray:
     if label.ndim == 3:
         label = label[..., 0]
     return label == label_value
-
-
-def score_candidates(masks, ground_truth, row: ManifestRow, *, model: str,
-                     strategy: str, jitter: str, seed: int) -> list[dict]:
-    gt_area = int(ground_truth.sum())
-    rows = []
-    for index in range(len(masks)):
-        candidate = masks.masks[index]
-        rows.append({
-            "dataset": row.dataset, "modality": row.modality, "target": row.target,
-            "subject": row.subject, "patient": row.patient, "image_id": row.image_id,
-            "slice_index": row.slice_index, "label_value": row.label_value,
-            "model": model, "strategy": strategy, "jitter": jitter, "seed": seed,
-            "candidate": index,
-            "predicted_iou": float(masks.scores[index]),
-            "dice": dice(candidate, ground_truth),
-            "jaccard": jaccard(candidate, ground_truth),
-            "hd": hausdorff(candidate, ground_truth),
-            "hd95": hausdorff(candidate, ground_truth, percentile=95),
-            "gt_area": gt_area,
-            "pred_area": int(candidate.sum()),
-        })
-    return rows
 
 
 def main(argv: list[str] | None = None) -> int:
