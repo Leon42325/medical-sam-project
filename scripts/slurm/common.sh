@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-PROJECT="${PROJECT:-$WORK/sam-medical-revisited}"
+PROJECT="${PROJECT:-$WORK/medical-sam-project}"
 ENV_PREFIX="${ENV_PREFIX:-$PROJECT/env}"
 DATA_ROOT="${DATA_ROOT:-$PROJECT/data}"
 EMBED_ROOT="${EMBED_ROOT:-$PROJECT/embeddings}"

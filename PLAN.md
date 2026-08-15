@@ -391,7 +391,7 @@ Raw + preprocessed data ~150 GB. Well within normal `$WORK` quota, but to be con
 ### 11.2 Repository
 
 ```
-sam-medical-revisited/
+medical-sam-project/
 ├── README.md                  # results up front, figures, one-command smoke test
 ├── configs/                   # datasets, models, experiments — YAML, no hardcoded paths
 ├── src/
@@ -454,5 +454,5 @@ reproduction is validated in week 3 — a broken harness would invalidate both.
 4. Request Meta SAM 3 licence access on Hugging Face (keeps the stretch goal alive at zero cost).
 5. ~~Confirm whether the report must also be submitted to the chair.~~ **Done** — portfolio artefact only,
    so the README is the primary deliverable and the report PDF is linked from it.
-6. ~~Decide the repository name and account.~~ **Done** — `sam-medical-revisited`, personal GitHub account,
+6. ~~Decide the repository name and account.~~ **Done** — `medical-sam-project`, personal GitHub account,
    local repository initialised.

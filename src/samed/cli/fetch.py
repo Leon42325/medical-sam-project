@@ -1,6 +1,6 @@
 """Stage 0: obtain a dataset and prove it is the one the paper describes.
 
-    python -m samed.cli.fetch --dataset chaos --root $WORK/sam-medical-revisited/data
+    python -m samed.cli.fetch --dataset chaos --root $WORK/medical-sam-project/data
     python -m samed.cli.fetch --all --dry-run
     python -m samed.cli.fetch --dataset drive --verify-only
 
