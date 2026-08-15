@@ -79,14 +79,23 @@ datasets:
     name: CAMUS
     modalities: [Ultrasound]
     targets: [left ventricle, myocardium, left atrium]
-    access: registration
+    access: direct
     url: https://humanheart-project.creatis.insa-lyon.fr/database/#collection/6373703d73e9f0047faa1bc8
+    official_page: https://www.creatis.insa-lyon.fr/Challenge/camus/databases.html
     provenance_rule: 1
     medsam_arm: seen
+    citation_required: >
+      "You must cite this paper for any use of the CAMUS database" -
+      Leclerc et al., Deep Learning for Segmentation Using an Open Large-Scale
+      Dataset in 2D Echocardiography, IEEE TMI 38(9):2198-2210, 2019.
+      A condition of use, not a courtesy; it goes in the report's references
+      whatever else is cited.
     why: >
       Speckle noise and weak boundaries.  Carries the `seen` arm of H3a, so the
       labels must be exactly the official ones - several Kaggle re-uploads are
-      reorganised or resized, hence official access only.
+      reorganised or resized, hence official source only.  No account is needed:
+      the collection downloads anonymously, and the official page states no
+      registration requirement.
 
   # ---------------------------------------------------------------- X-ray
   montgomery:
