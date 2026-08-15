@@ -1,0 +1,209 @@
+# Evaluation datasets, their provenance, and the integrity checks each must pass.
+#
+# Provenance policy
+# -----------------
+# A reproduction is only as trustworthy as its inputs, and public medical
+# datasets circulate in many mutually inconsistent re-uploads.  The rules below
+# are fixed in advance; the report states, per dataset, which rule applied.
+#
+#   1. Prefer the official distribution whenever access is a single instant form.
+#   2. Treat a mirror as official when the uploader is the dataset's author or a
+#      challenge organiser.
+#   3. A third-party mirror may be used only after passing `verify` below.  The
+#      usual failure is a silently pre-resized copy, which would corrupt the
+#      attribute analysis: pixel area and elliptic Fourier boundary complexity
+#      are both resolution-dependent, so a 256x256 re-upload of a 565x584 fundus
+#      image does not measure the same object.
+#   4. Record the resolved URL and checksum in the manifest, and cite the
+#      ORIGINAL publication in the report regardless of where bytes came from.
+#
+# `medsam_arm` is taken from configs/training_corpora.yaml and drives H3a.
+# Values: seen | held_out | unlisted | modality_absent
+
+policy:
+  verify:
+    - n_images          # against the count published in the source paper
+    - image_resolution  # must be native; any resizing disqualifies the mirror
+    - label_values      # the set of category codes present
+    - checksum          # recorded for reproducibility, not compared upstream
+  on_failure: drop_and_record
+
+datasets:
+
+  # ---------------------------------------------------------------- CT / MRI
+  chaos:
+    name: CHAOS
+    modalities: [CT, T1W-MRI, T2W-MRI]
+    targets: [liver, kidney, spleen]
+    access: direct
+    url: https://zenodo.org/records/3431873
+    official_page: https://chaos.grand-challenge.org/
+    provenance_rule: 1
+    medsam_arm: held_out
+    why: >
+      The same organs imaged in three modalities, which isolates the modality
+      factor that Table 6 reports as uncorrelated with DICE.  Also on MedSAM's
+      published held-out list, so it carries weight in H3a.
+
+  msd:
+    name: Medical Segmentation Decathlon
+    subsets: [Task03_Liver, Task07_Pancreas, Task09_Spleen]
+    modalities: [CT]
+    targets: [liver, pancreas, spleen]
+    access: direct
+    url: http://medicaldecathlon.com/
+    provenance_rule: 1
+    medsam_arm: seen
+    why: >
+      Spans the contrast extremes within one modality: liver is large and
+      well-separated, pancreas is the classic low-contrast failure case.
+
+  acdc:
+    name: ACDC
+    modalities: [Cine-MRI]
+    targets: [left ventricle, right ventricle, myocardium]
+    access: registration_or_mirror
+    url: https://humanheart-project.creatis.insa-lyon.fr/database/#collection/637218c173e9f0047faa00fb
+    mirror: https://www.kaggle.com/datasets/anhoangvo/acdc-dataset
+    provenance_rule: 3
+    medsam_arm: held_out
+    why: >
+      Myocardium is a thin high-aspect-ratio ring, the shape class that box
+      prompts describe worst.
+    verify_note: >
+      Mirror is third-party.  Expect 150 patients; confirm slice counts and that
+      labels use the original 1/2/3 coding before use.
+
+  # ---------------------------------------------------------------- Ultrasound
+  camus:
+    name: CAMUS
+    modalities: [Ultrasound]
+    targets: [left ventricle, myocardium, left atrium]
+    access: registration
+    url: https://humanheart-project.creatis.insa-lyon.fr/database/#collection/6373703d73e9f0047faa1bc8
+    provenance_rule: 1
+    medsam_arm: seen
+    why: >
+      Speckle noise and weak boundaries.  Carries the `seen` arm of H3a, so the
+      labels must be exactly the official ones - several Kaggle re-uploads are
+      reorganised or resized, hence official access only.
+
+  # ---------------------------------------------------------------- X-ray
+  montgomery:
+    name: Montgomery County CXR Set
+    modalities: [X-ray]
+    targets: [lung]
+    access: direct
+    url: https://openi.nlm.nih.gov/faq#collection
+    provenance_rule: 1
+    medsam_arm: seen
+    why: The paper's best-performing modality; large, high-contrast objects.
+
+  # ---------------------------------------------------------------- Endoscopy
+  kvasir_seg:
+    name: Kvasir-SEG
+    modalities: [Colonoscopy]
+    targets: [polyp]
+    access: direct
+    url: https://datasets.simula.no/kvasir-seg/
+    provenance_rule: 1
+    medsam_arm: held_out
+
+  cvc_clinicdb:
+    name: CVC-ClinicDB
+    modalities: [Colonoscopy]
+    targets: [polyp]
+    access: direct
+    url: https://polyp.grand-challenge.org/CVCClinicDB/
+    provenance_rule: 1
+    medsam_arm: unlisted
+    why: Same object as Kvasir-SEG from a second source, giving inter-dataset variance.
+
+  # ---------------------------------------------------------------- Dermoscopy
+  isic2018:
+    name: ISIC 2018 Task 1
+    modalities: [Dermoscopy]
+    targets: [melanoma]
+    access: mirror_authoritative
+    url: https://www.kaggle.com/datasets/tschandl/isic2018-challenge-task1-data-segmentation
+    official_page: https://challenge2018.isic-archive.com/task1/training/
+    provenance_rule: 2
+    medsam_arm: seen
+    why: >
+      Uploader is an ISIC organiser and the HAM10000 author, so the mirror counts
+      as official under rule 2.  Expect 2594 image/mask pairs.
+
+  # ---------------------------------------------------------------- Fundus
+  stare:
+    name: STARE
+    modalities: [Fundus]
+    targets: [retinal vessels]
+    access: direct
+    url: https://cecas.clemson.edu/~ahoover/stare/
+    provenance_rule: 1
+    medsam_arm: held_out
+
+  chasedb1:
+    name: CHASE-DB1
+    modalities: [Fundus]
+    targets: [retinal vessels]
+    access: direct
+    url: https://blogs.kingston.ac.uk/retinal/chasedb1/
+    provenance_rule: 1
+    medsam_arm: held_out
+
+  drive:
+    name: DRIVE
+    modalities: [Fundus]
+    targets: [retinal vessels]
+    access: registration_or_mirror
+    url: https://drive.grand-challenge.org/
+    mirror: https://www.kaggle.com/datasets/andrewmvd/drive-digital-retinal-images-for-vessel-extraction
+    provenance_rule: 3
+    medsam_arm: held_out
+    optional: true
+    why: >
+      Optional - STARE and CHASE-DB1 already cover the extreme-Fourier-order
+      regime that stress-tests H1 and H2.  Expect 40 images at 565x584; a mirror
+      at any other resolution is disqualified.
+
+  # ---------------------------------------------------------------- Pathology / EM
+  warwick_qu:
+    name: Warwick-QU (GlaS)
+    modalities: [Histopathology]
+    targets: [gland]
+    access: direct
+    url: https://warwick.ac.uk/fac/cross_fac/tia/data/glascontest/
+    provenance_rule: 1
+    medsam_arm: held_out
+
+  epfl_em:
+    name: EPFL-EM (Lucchi)
+    modalities: [Electron Microscopy]
+    targets: [mitochondria]
+    access: direct
+    url: https://www.epfl.ch/labs/cvlab/data/data-em/
+    provenance_rule: 1
+    medsam_arm: modality_absent
+    why: >
+      Electron microscopy appears in no audited training corpus, making this the
+      one target in the reproduction subset that is out-of-domain for every
+      medical model without needing any new data.
+
+# ---------------------------------------------------------------------------
+# Candidates deliberately NOT used, with the reason - so the report can say why
+# ---------------------------------------------------------------------------
+rejected:
+  medsegbench:
+    reason: >
+      Standardised re-releases are attractive for their zero access friction, but
+      standardisation appears to include resizing, which is disqualifying for the
+      attribute analysis under policy rule 3.  Must be confirmed before any use;
+      at most admissible as extra mass for the H3a held-out arm, never for the
+      attribute correlations.
+  camus_kaggle_mirrors:
+    reason: Several are explicitly reorganised or resized; CAMUS carries the H3a seen arm.
+  tier_a_oct_pet_mammography:
+    reason: >
+      Withdrawn after the provenance audit - all three modalities are inside
+      MedSAM's training corpus.  See configs/training_corpora.yaml.

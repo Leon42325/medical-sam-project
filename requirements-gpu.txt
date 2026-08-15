@@ -1,0 +1,17 @@
+# Model back-ends. Installed only on the cluster - nothing in `samed` imports
+# torch, so the analysis layer and the whole test suite run on a laptop without
+# any of this.
+#
+# torch/torchvision are NOT pinned here: the environment is cloned from the
+# cluster's maintained pytorch2.6-py3.12 module, which is already matched to the
+# local CUDA stack. Installing torch from PyPI on top of that is how you end up
+# with a build that cannot see the GPU.
+
+segment-anything @ git+https://github.com/facebookresearch/segment-anything.git
+
+# Pending, added once each has been verified against a real checkpoint on the
+# cluster rather than guessed from documentation:
+#   sam2         - facebookresearch/sam2          (SAM 2.1 generation control)
+#   MedSAM2      - bowang-lab/MedSAM2             (medical, newer backbone)
+#   SAM-Med2D    - OpenGVLab/SAM-Med2D            (medical, 256x256 input)
+#   sam3         - facebookresearch/sam3          (stretch goal; gated weights)
