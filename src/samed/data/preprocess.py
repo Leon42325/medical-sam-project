@@ -108,3 +108,34 @@ def select_labelled_slices(
     """
     areas = slice_label_areas(labels, axis=axis, label_value=label_value)
     return np.flatnonzero(areas > min_area)
+
+
+def read_pixels(path) -> np.ndarray:
+    """Pixel data of one slice, in the source's own intensity units.
+
+    DICOM stores raw stored values; ``RescaleSlope`` and ``RescaleIntercept``
+    convert them to the physical scale (Hounsfield units for CT). Applying the
+    rescale before normalisation is what makes a min-max over a CT volume mean
+    the same thing across patients - without it, the normalisation is over an
+    arbitrary vendor offset.
+    """
+    from pathlib import Path
+
+    file = Path(path)
+    if file.suffix.lower() in {".dcm", ".ima"}:
+        import pydicom
+
+        dataset = pydicom.dcmread(str(file))
+        pixels = dataset.pixel_array.astype(np.float64)
+        slope = float(getattr(dataset, "RescaleSlope", 1.0) or 1.0)
+        intercept = float(getattr(dataset, "RescaleIntercept", 0.0) or 0.0)
+        return pixels * slope + intercept
+
+    import cv2
+
+    image = cv2.imread(str(file), cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise FileNotFoundError(f"could not read {file}")
+    if image.ndim == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return image.astype(np.float64)
