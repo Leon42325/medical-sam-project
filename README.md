@@ -6,8 +6,9 @@ extended with an experiment the paper does not contain: **where does medical fin
 actually help, and does it survive contact with data the model was not trained on?**
 
 > **Status: in progress.** First results are in, on CHAOS only — 9 object-modality targets,
-> 40 patients, abdominal organs, SAM ViT-B and ViT-H. Everything below is scoped to that;
-> the remaining datasets, MedSAM and the object-attribute analysis are not done yet.
+> 40 patients, abdominal organs, SAM ViT-B and ViT-H, all six prompting strategies, plus the
+> object-attribute analysis. Everything below is scoped to that; the remaining datasets, the
+> medical-specialised models and the prompt-perturbation study are not finished yet.
 
 ---
 
