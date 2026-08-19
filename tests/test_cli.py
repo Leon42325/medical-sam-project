@@ -355,3 +355,70 @@ def test_the_two_prediction_stages_cannot_overwrite_each_other(workspace):
 
     from samed.analysis import load_results
     assert set(load_results(shared)["strategy"]) == {"S1", "S5"}
+
+
+# --------------------------------------------------------------------------- #
+# Object attributes
+# --------------------------------------------------------------------------- #
+
+
+def _run_attributes(workspace: Path, **overrides) -> Path:
+    from samed.cli import attributes as attributes_cli
+
+    out = overrides.pop("out", workspace / "attrs")
+    argv = [
+        "--manifest", str(workspace / "manifest.csv"),
+        "--images", str(workspace / "images"), "--labels", str(workspace / "labels"),
+        "--out", str(out),
+    ]
+    argv += _flags(overrides)
+    assert attributes_cli.main(argv) == 0
+    return out
+
+
+def test_attributes_measure_every_object(workspace):
+    out = _run_attributes(workspace)
+    rows = _read_rows(out / "attributes-shard-0000-of-0001.csv")
+
+    assert len(rows) == 4
+    assert all(int(r["area"]) == 400 for r in rows), "each fixture square is 20x20"
+    assert all(float(r["aspect_ratio"]) == 1.0 for r in rows)
+    # The fixture squares are 200 on a background of 40.
+    assert all(abs(float(r["intensity_difference"]) - 160) < 1 for r in rows)
+
+
+def test_attributes_report_both_fourier_variants(workspace):
+    """The paper's criterion and a corrected one, so the difference is measurable
+    on real data rather than only on synthetic stars."""
+    rows = _read_rows(_run_attributes(workspace) / "attributes-shard-0000-of-0001.csv")
+
+    for row in rows:
+        assert row["fourier_stop_paper"] in {"dice_target", "no_improvement", "max_order"}
+        assert row["fourier_stop_corrected"] in {"dice_target", "no_improvement", "max_order"}
+        # A square is simple, so both variants should fit it quickly.
+        assert float(row["fourier_paper"]) < 50
+        assert int(row["fourier_order_corrected"]) >= 1
+
+
+def test_attribute_shards_partition_the_manifest(workspace):
+    out = workspace / "attrs-sharded"
+    seen = []
+    for shard in range(2):
+        _run_attributes(workspace, out=out, shard=shard, num_shards=2)
+        seen += [r["image_id"] for r in
+                 _read_rows(out / f"attributes-shard-{shard:04d}-of-0002.csv")]
+    assert sorted(seen) == [f"img{i}" for i in range(4)]
+
+
+def test_attributes_join_onto_results(workspace):
+    """The two stages must agree on the keys, or Table 6 silently loses rows."""
+    from samed.analysis import load_attributes, load_results, merge_attributes, select_per_prompt
+
+    embeddings = _run_embed(workspace)
+    results = _run_predict(workspace, embeddings, strategies="S5")
+    attributes = _run_attributes(workspace)
+
+    merged = merge_attributes(select_per_prompt(load_results(results)),
+                              load_attributes(attributes))
+    assert len(merged) == 4
+    assert {"area", "fourier_paper", "oracle_gap"} <= set(merged.columns)

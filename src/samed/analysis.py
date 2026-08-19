@@ -53,6 +53,11 @@ __all__ = [
     "summarise",
     "bootstrap_ci",
     "paired_comparison",
+    "ATTRIBUTES",
+    "load_attributes",
+    "merge_attributes",
+    "partial_spearman",
+    "attribute_correlations",
 ]
 
 #: Columns that together identify one prompt, i.e. one set of candidate masks.
@@ -274,5 +279,118 @@ def paired_comparison(
             # An interval clear of zero on both sides is a difference the data
             # supports; the sign is what the two rules can disagree about.
             record[f"delta_{column}_sig"] = "yes" if low * high > 0 else "no"
+        records.append(record)
+    return pd.DataFrame.from_records(records)
+
+
+#: The factors of Sec. 4.8, in the order Table 6 reports them.
+ATTRIBUTES = [
+    "area", "intensity_difference", "fourier_paper", "modality_code", "aspect_ratio",
+]
+
+
+def load_attributes(paths: str | Path | Iterable[str | Path]) -> pd.DataFrame:
+    """Read the per-object attribute shards written by ``samed.cli.attributes``."""
+    if isinstance(paths, (str, Path)):
+        root = Path(paths)
+        files = sorted(root.rglob("attributes-*.csv")) if root.is_dir() else [root]
+    else:
+        files = [Path(p) for p in paths]
+    if not files:
+        raise FileNotFoundError(f"no attribute shards found under {paths}")
+
+    frame = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+
+    # The paper "mapped modality to numerical values" and correlates the result.
+    # Reproduced here for comparability, but the code is arbitrary: modality is
+    # nominal, so any ordering is as defensible as any other and the rank
+    # correlation it produces carries no meaning. The paper reads its near-zero
+    # value as evidence that "SAM can consistently segment medical targets with
+    # different modality" - a conclusion this quantity cannot support either way.
+    frame["modality_code"] = pd.Categorical(frame["modality"]).codes
+    return frame
+
+
+def merge_attributes(selected: pd.DataFrame, attributes: pd.DataFrame) -> pd.DataFrame:
+    """Attach object attributes to per-prompt results."""
+    keys = ["dataset", "modality", "target", "image_id", "label_value"]
+    columns = keys + [c for c in attributes.columns if c not in selected.columns]
+    merged = selected.merge(attributes[columns].drop_duplicates(keys), on=keys, how="inner")
+    if merged.empty:
+        raise ValueError("results and attributes share no objects; same manifest?")
+    return merged
+
+
+def partial_spearman(frame: pd.DataFrame, outcome: str, predictors: Sequence[str]) -> dict:
+    """Spearman rank partial correlation of ``outcome`` with each predictor.
+
+    Partial, i.e. each predictor's association with the outcome after removing
+    what the other predictors explain - which matters here because size and
+    boundary complexity are themselves related, so a raw correlation would
+    credit each with the other's effect. Computed as the standard normalisation
+    of the precision matrix of the rank correlations.
+    """
+    columns = [outcome, *predictors]
+    ranks = frame[columns].rank()
+    usable = [c for c in columns if ranks[c].nunique() > 1]
+    if outcome not in usable or len(usable) < 2:
+        return {p: float("nan") for p in predictors}
+
+    correlation = np.corrcoef(ranks[usable].to_numpy(), rowvar=False)
+    precision = np.linalg.pinv(correlation)
+    index = usable.index(outcome)
+
+    result = {}
+    for predictor in predictors:
+        if predictor not in usable:
+            result[predictor] = float("nan")
+            continue
+        other = usable.index(predictor)
+        denominator = np.sqrt(precision[index, index] * precision[other, other])
+        result[predictor] = float(-precision[index, other] / denominator) if denominator else float("nan")
+    return result
+
+
+def attribute_correlations(
+    merged: pd.DataFrame,
+    *,
+    outcome: str = "dice_score",
+    predictors: Sequence[str] = tuple(ATTRIBUTES),
+    by: Sequence[str] = ("strategy",),
+    cluster: str | None = "patient",
+    resamples: int = 500,
+    seed: int = 0,
+) -> pd.DataFrame:
+    """Replicate Table 6, with intervals that respect the clustering.
+
+    The paper reports these correlations over 191,779 structures and marks
+    p < 0.001 in bold, treating every slice as an independent observation. The
+    cluster bootstrap here resamples patients instead, so the interval reflects
+    how many scans the evidence actually comes from.
+    """
+    records = []
+    for key, group in merged.groupby(list(by), sort=True, dropna=False):
+        key = key if isinstance(key, tuple) else (key,)
+        point = partial_spearman(group, outcome, predictors)
+
+        draws: dict[str, list[float]] = {p: [] for p in predictors}
+        rng = np.random.default_rng(seed)
+        if cluster and cluster in group:
+            groups = [g for _, g in group.groupby(cluster, sort=True)]
+            for _ in range(resamples):
+                picked = rng.integers(0, len(groups), size=len(groups))
+                sample = pd.concat([groups[i] for i in picked], ignore_index=True)
+                for predictor, value in partial_spearman(sample, outcome, predictors).items():
+                    draws[predictor].append(value)
+
+        record = {**dict(zip(by, key)), "n": len(group)}
+        for predictor in predictors:
+            record[predictor] = point[predictor]
+            values = [v for v in draws[predictor] if np.isfinite(v)]
+            if values:
+                low, high = np.percentile(values, [2.5, 97.5])
+                record[f"{predictor}_lo"] = float(low)
+                record[f"{predictor}_hi"] = float(high)
+                record[f"{predictor}_sig"] = "yes" if low * high > 0 else "no"
         records.append(record)
     return pd.DataFrame.from_records(records)

@@ -12,8 +12,12 @@ import pytest
 from samed.analysis import (
     PROMPT_KEYS,
     bootstrap_ci,
+    attribute_correlations,
+    load_attributes,
     load_results,
+    merge_attributes,
     paired_comparison,
+    partial_spearman,
     select_per_prompt,
     summarise,
 )
@@ -295,3 +299,136 @@ def test_the_s1_caveat_is_printed_only_when_s1_is_present(tmp_path, capsys):
 
         assert analyse_cli.main(["--results", str(path)]) == 0
         assert ("S1 is not comparable" in capsys.readouterr().out) is expected
+
+
+# --------------------------------------------------------------------------- #
+# Object attributes and Table 6
+# --------------------------------------------------------------------------- #
+
+
+def _attribute_frame(n: int = 400, seed: int = 0) -> pd.DataFrame:
+    """`contrast` drives the outcome; `size` only correlates with contrast.
+
+    A raw correlation credits size with contrast's effect. A partial one must
+    not - which is the whole reason the paper uses partial correlations, since
+    object size and boundary complexity are themselves related.
+    """
+    rng = np.random.default_rng(seed)
+    contrast = rng.normal(0, 1, n)
+    size = contrast * 0.9 + rng.normal(0, 0.4, n)
+    return pd.DataFrame({
+        "dice_score": 0.5 + 0.3 * contrast + rng.normal(0, 0.05, n),
+        "intensity_difference": contrast,
+        "area": size,
+        "fourier_paper": rng.normal(0, 1, n),
+        "modality_code": rng.integers(0, 3, n),
+        "aspect_ratio": rng.uniform(0.2, 1.0, n),
+        "patient": [f"p{i % 20}" for i in range(n)],
+        "strategy": "S5",
+    })
+
+
+def test_partial_correlation_does_not_credit_a_confounded_predictor():
+    frame = _attribute_frame()
+    partial = partial_spearman(frame, "dice_score", ["intensity_difference", "area"])
+
+    raw_size = frame["dice_score"].corr(frame["area"], method="spearman")
+    assert raw_size > 0.5, "size looks influential before controlling for contrast"
+    assert partial["intensity_difference"] > 0.5
+    assert abs(partial["area"]) < 0.2, "after controlling, size adds almost nothing"
+
+
+def test_partial_correlation_survives_a_constant_predictor():
+    frame = _attribute_frame(50)
+    frame["aspect_ratio"] = 1.0
+    result = partial_spearman(frame, "dice_score", ["intensity_difference", "aspect_ratio"])
+    assert np.isnan(result["aspect_ratio"])
+    assert np.isfinite(result["intensity_difference"])
+
+
+def test_attribute_correlations_flag_what_the_data_supports():
+    frame = _attribute_frame()
+    table = attribute_correlations(frame, resamples=100)
+
+    assert list(table["strategy"]) == ["S5"]
+    assert table["intensity_difference"].iloc[0] > 0.5
+    assert table["intensity_difference_sig"].iloc[0] == "yes"
+    assert table["aspect_ratio_sig"].iloc[0] == "no", "a pure noise predictor must not pass"
+
+
+def test_merge_attributes_needs_a_shared_manifest(results, tmp_path):
+    selected = select_per_prompt(load_results(results))
+    attributes = pd.DataFrame([{
+        "dataset": "elsewhere", "modality": "CT", "target": "liver",
+        "image_id": "other", "label_value": 255, "area": 10,
+    }])
+    with pytest.raises(ValueError, match="share no objects"):
+        merge_attributes(selected, attributes)
+
+
+def test_load_attributes_codes_the_modality(tmp_path):
+    rows = [
+        {"dataset": "chaos", "modality": m, "target": "liver", "image_id": f"img{i}",
+         "label_value": 255, "area": 100 + i, "aspect_ratio": 0.5,
+         "intensity_difference": 20.0, "fourier_paper": 5.0, "fourier_corrected": 11.0}
+        for i, m in enumerate(["CT", "T1W-MRI", "T2W-MRI"])
+    ]
+    path = tmp_path / "attributes-shard-0000-of-0001.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    frame = load_attributes(tmp_path)
+    assert sorted(frame["modality_code"].unique()) == [0, 1, 2]
+    assert len(frame) == 3
+
+
+def _jitter_results(tmp_path: Path) -> Path:
+    """Clean and perturbed runs, as the jitter study produces them."""
+    for level, penalty in (("none", 0.0), ("10-20", 0.2)):
+        rows = []
+        for prompt in range(6):
+            for candidate, (d, iou) in enumerate([(0.9 - penalty, 0.8), (0.4, 0.3)]):
+                rows.append({
+                    **{key: "x" for key in PROMPT_KEYS},
+                    "strategy": "S5", "jitter": level, "patient": f"p{prompt % 3}",
+                    "image_id": f"img{prompt}", "candidate": candidate,
+                    "predicted_iou": iou, "dice": d,
+                    "jaccard": 0.0, "hd": 0.0, "hd95": 0.0,
+                })
+        directory = tmp_path / f"jitter-{level}"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / "prompted-shard-0000-of-0001.csv"
+        with path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+    return tmp_path
+
+
+def test_perturbed_runs_do_not_pollute_the_headline_tables(tmp_path, capsys):
+    """Jitter results land beside the clean ones; averaging them would quietly
+    depress every published number."""
+    root = _jitter_results(tmp_path)
+    assert analyse_cli.main(["--results", str(root)]) == 0
+
+    printed = capsys.readouterr().out
+    assert "tables below describe 'none' only" in printed
+    assert "Prompt perturbation" in printed
+
+    from samed.analysis import load_results as load
+    everything = select_per_prompt(load(root))
+    clean_only = everything[everything["jitter"] == "none"]
+    assert clean_only["dice_score"].mean() > everything["dice_score"].mean()
+
+
+def test_an_unknown_jitter_level_is_refused(tmp_path, capsys):
+    root = _jitter_results(tmp_path)
+    assert analyse_cli.main(["--results", str(root), "--jitter", "40-50"]) == 2
+    assert "no results at jitter level" in capsys.readouterr().out
+
+
+def test_jitter_can_be_pooled_on_request(tmp_path):
+    root = _jitter_results(tmp_path)
+    assert analyse_cli.main(["--results", str(root), "--jitter", "all"]) == 0

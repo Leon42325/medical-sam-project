@@ -20,7 +20,10 @@ import sys
 from pathlib import Path
 
 from samed.analysis import (
+    attribute_correlations,
+    load_attributes,
     load_results,
+    merge_attributes,
     paired_comparison,
     select_per_prompt,
     summarise,
@@ -34,6 +37,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", type=Path, help="directory for the summary CSVs")
     parser.add_argument("--seed", type=int, default=0, help="bootstrap seed")
     parser.add_argument("--baseline", help="model to compare the others against, paired per prompt")
+    parser.add_argument("--attributes", type=Path,
+                        help="object attributes from samed.cli.attributes; enables Table 6")
+    parser.add_argument(
+        "--jitter", default="none",
+        help="which perturbation level the main tables describe: a level, or 'all'. "
+             "Defaults to the unperturbed runs, so that submitting the jitter study "
+             "cannot silently average perturbed results into the headline numbers.",
+    )
     return parser
 
 
@@ -51,10 +62,99 @@ def _print(title: str, frame, columns: dict[str, str]) -> None:
         print("".join(cells))
 
 
+CORRELATION_COLUMNS = {
+    "strategy": ("strat", 7), "n": ("n", 7),
+    "area": ("size", 8), "area_sig": ("sig", 5),
+    "intensity_difference": ("contrast", 10), "intensity_difference_sig": ("sig", 5),
+    "fourier_paper": ("complexity", 12), "fourier_paper_sig": ("sig", 5),
+    "modality_code": ("modality", 10),
+    "aspect_ratio": ("aspect", 8),
+}
+
+
+def _jitter_table(selected, args) -> None:
+    """Table 8: how far performance falls as the prompt is displaced.
+
+    The paper reports a DICE *drop* against the unperturbed run, so that is what
+    is shown - together with the level it is measured from, since a drop is only
+    interpretable next to its baseline.
+    """
+    table = summarise(selected, by=("jitter", "strategy"), seed=args.seed)
+    baseline = table[table["jitter"] == "none"].set_index("strategy")["dice_score"]
+    table["drop"] = table.apply(
+        lambda row: baseline.get(row["strategy"], float("nan")) - row["dice_score"], axis=1
+    )
+    _print("Prompt perturbation (paper Table 8)", table.sort_values(["strategy", "jitter"]), {
+        "strategy": ("strat", 7), "jitter": ("shift px", 10),
+        "n_clusters": ("patients", 10),
+        "dice_score": ("deployable", 12), "drop": ("drop", 8),
+        "dice_oracle": ("oracle", 9), "oracle_gap": ("gap", 8),
+    })
+    print(
+        "\n`drop` is measured against the same strategy unperturbed. The paper reports\n"
+        "this under its oracle rule; both columns are here, because a rule that picks\n"
+        "the best mask by ground truth can absorb a displaced prompt that a deployable\n"
+        "one cannot."
+    )
+    if args.out:
+        args.out.mkdir(parents=True, exist_ok=True)
+        table.to_csv(args.out / "jitter.csv", index=False)
+
+
+def _correlations(merged, args) -> None:
+    """Table 6, plus the same analysis applied to the oracle gap."""
+    published = attribute_correlations(merged, outcome="dice_score", seed=args.seed)
+    _print("Partial rank correlation of DICE with object attributes (paper Table 6)",
+           published, CORRELATION_COLUMNS)
+
+    corrected = attribute_correlations(
+        merged, outcome="dice_score",
+        predictors=("area", "intensity_difference", "fourier_corrected",
+                    "modality_code", "aspect_ratio"),
+        seed=args.seed,
+    )
+    _print("The same, with the corrected boundary-complexity measure", corrected, {
+        **{k: v for k, v in CORRELATION_COLUMNS.items() if not k.startswith("fourier")},
+        "fourier_corrected": ("complexity", 12), "fourier_corrected_sig": ("sig", 5),
+    })
+
+    gap = attribute_correlations(merged, outcome="oracle_gap", seed=args.seed)
+    _print("Partial rank correlation of the ORACLE GAP with the same attributes",
+           gap, CORRELATION_COLUMNS)
+    print(
+        "\nThe last table is not in the paper. It asks what makes a prompt ambiguous:\n"
+        "the gap varies by more than an order of magnitude across targets (liver ~0.42,\n"
+        "T2W kidney ~0.03), and these are the object properties that go with it.\n"
+        "\nModality is included because the paper includes it, having mapped a nominal\n"
+        "variable to arbitrary integers. Any other coding gives a different number, so\n"
+        "the column is reported without a significance flag and should not be read."
+    )
+
+    if args.out:
+        args.out.mkdir(parents=True, exist_ok=True)
+        published.to_csv(args.out / "correlations_dice.csv", index=False)
+        corrected.to_csv(args.out / "correlations_dice_corrected_fourier.csv", index=False)
+        gap.to_csv(args.out / "correlations_oracle_gap.csv", index=False)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    selected = select_per_prompt(load_results(args.results))
+    results = load_results(args.results)
+    levels = sorted(results["jitter"].astype(str).unique())
+    if args.jitter != "all":
+        if args.jitter not in levels:
+            print(f"no results at jitter level {args.jitter!r}; found {levels}")
+            return 2
+        clean = results[results["jitter"].astype(str) == args.jitter]
+    else:
+        clean = results
+    selected = select_per_prompt(clean)
+
+    if len(levels) > 1 and args.jitter != "all":
+        print(f"jitter levels present: {', '.join(levels)}; "
+              f"tables below describe {args.jitter!r} only")
+        _jitter_table(select_per_prompt(results), args)
     per_target = summarise(selected, by=("modality", "target", "strategy"), seed=args.seed)
     per_strategy = summarise(selected, by=("strategy",), seed=args.seed)
 
@@ -128,6 +228,10 @@ def main(argv: list[str] | None = None) -> int:
             "everything-mode performance came from the ground truth supplying the\n"
             "semantics - not as a ranking failure."
         )
+
+    if args.attributes:
+        merged = merge_attributes(selected, load_attributes(args.attributes))
+        _correlations(merged, args)
 
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)
