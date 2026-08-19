@@ -34,7 +34,8 @@ def shard_filename(stage: str, shard: int, num_shards: int, **variant) -> str:
 
 FIELDS = [
     "dataset", "modality", "target", "subject", "patient", "image_id", "slice_index",
-    "label_value", "model", "strategy", "jitter", "seed", "candidate", "n_candidates",
+    "label_value", "model", "strategy", "jitter", "jitter_points", "jitter_box_mode",
+    "seed", "candidate", "n_candidates",
     "predicted_iou", "dice", "jaccard", "hd", "hd95", "gt_area", "pred_area",
 ]
 
@@ -73,6 +74,8 @@ def score_candidates(
     model: str,
     strategy: str,
     jitter: str = "none",
+    jitter_points: str = "all",
+    jitter_box_mode: str = "perturb",
     seed: int = 0,
     indices: Sequence[int] | None = None,
 ) -> list[dict]:
@@ -87,7 +90,9 @@ def score_candidates(
             "dataset": row.dataset, "modality": row.modality, "target": row.target,
             "subject": row.subject, "patient": row.patient, "image_id": row.image_id,
             "slice_index": row.slice_index, "label_value": row.label_value,
-            "model": model, "strategy": strategy, "jitter": jitter, "seed": seed,
+            "model": model, "strategy": strategy, "jitter": jitter,
+            "jitter_points": jitter_points, "jitter_box_mode": jitter_box_mode,
+            "seed": seed,
             "candidate": int(index), "n_candidates": len(masks),
             "predicted_iou": float(masks.scores[index]),
             "dice": dice(candidate, ground_truth),

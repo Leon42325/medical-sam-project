@@ -79,22 +79,36 @@ def _jitter_table(selected, args) -> None:
     is shown - together with the level it is measured from, since a drop is only
     interpretable next to its baseline.
     """
-    table = summarise(selected, by=("jitter", "strategy"), seed=args.seed)
-    baseline = table[table["jitter"] == "none"].set_index("strategy")["dice_score"]
+    selected = selected.copy()
+    selected["reading"] = (selected["jitter_points"].astype(str) + "/"
+                           + selected["jitter_box_mode"].astype(str))
+
+    table = summarise(selected, by=("reading", "jitter", "strategy"), seed=args.seed)
+    # The unperturbed run is the same under either reading, so every drop is
+    # measured from the one baseline rather than from a reading-specific one.
+    baseline = (table[table["jitter"] == "none"]
+                .groupby("strategy")[["dice_score", "dice_oracle"]].mean())
     table["drop"] = table.apply(
-        lambda row: baseline.get(row["strategy"], float("nan")) - row["dice_score"], axis=1
-    )
-    _print("Prompt perturbation (paper Table 8)", table.sort_values(["strategy", "jitter"]), {
-        "strategy": ("strat", 7), "jitter": ("shift px", 10),
-        "n_clusters": ("patients", 10),
-        "dice_score": ("deployable", 12), "drop": ("drop", 8),
-        "dice_oracle": ("oracle", 9), "oracle_gap": ("gap", 8),
+        lambda row: baseline["dice_score"].get(row["strategy"], float("nan"))
+        - row["dice_score"], axis=1)
+    table["drop_oracle"] = table.apply(
+        lambda row: baseline["dice_oracle"].get(row["strategy"], float("nan"))
+        - row["dice_oracle"], axis=1)
+
+    _print("Prompt perturbation (paper Table 8)",
+           table[table["jitter"] != "none"].sort_values(["strategy", "reading", "jitter"]), {
+        "strategy": ("strat", 7), "reading": ("reading", 14), "jitter": ("shift px", 10),
+        "drop_oracle": ("drop (paper)", 14), "drop": ("drop (deploy)", 15),
+        "dice_oracle": ("oracle", 9), "dice_score": ("deployable", 12),
     })
     print(
-        "\n`drop` is measured against the same strategy unperturbed. The paper reports\n"
-        "this under its oracle rule; both columns are here, because a rule that picks\n"
-        "the best mask by ground truth can absorb a displaced prompt that a deployable\n"
-        "one cannot."
+        "\n`drop` is measured against the same strategy unperturbed. `drop (paper)` is\n"
+        "under the oracle rule and is the column comparable with the published Table 8.\n"
+        "\n`reading` names how the perturbation was applied, which the paper does not\n"
+        "state: `all` displaces every point, `first` only the centre of mass; `perturb`\n"
+        "moves each box edge independently, `shift` translates the box rigidly. The\n"
+        "paper's finding that more points make SAM more robust can only hold under\n"
+        "`first`, since under `all` every point of a five-point prompt moves at once."
     )
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)

@@ -450,3 +450,42 @@ def test_the_oracle_rule_flattens_attribute_dependence():
 
     assert oracle["intensity_difference"].iloc[0] < deployable["intensity_difference"].iloc[0]
     assert gap["intensity_difference"].iloc[0] < 0, "the gap grows as contrast falls"
+
+
+def test_the_perturbation_reading_is_carried_in_the_data(tmp_path):
+    """Encoding it only in the filename makes the two readings indistinguishable
+    once the shards are concatenated - and the duplicate check then rejects
+    everything, because the rows are genuinely identical on every key."""
+    from samed.analysis import LEGACY_DEFAULTS
+
+    rows = _candidates(jitter="10-20")
+    path = tmp_path / "prompted-shard-0000-of-0001-readingfirstshift.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with pytest.raises(ValueError, match="encode a perturbation reading in their"):
+        load_results(tmp_path)
+
+    assert set(LEGACY_DEFAULTS) <= set(PROMPT_KEYS)
+
+
+def test_older_files_without_the_reading_take_the_defaults(results):
+    frame = load_results(results)
+    assert set(frame["jitter_points"]) == {"all"}
+    assert set(frame["jitter_box_mode"]) == {"perturb"}
+
+
+def test_two_readings_of_the_same_prompt_are_not_duplicates(tmp_path):
+    for points, box_mode in (("all", "perturb"), ("first", "shift")):
+        rows = _candidates(jitter="20-30", jitter_points=points, jitter_box_mode=box_mode)
+        path = tmp_path / f"prompted-shard-0000-of-0001-reading{points}{box_mode}.csv"
+        with path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+
+    frame = load_results(tmp_path)
+    assert len(frame) == 6
+    assert set(frame["jitter_points"]) == {"all", "first"}

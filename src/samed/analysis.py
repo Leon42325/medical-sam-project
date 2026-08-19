@@ -63,8 +63,13 @@ __all__ = [
 #: Columns that together identify one prompt, i.e. one set of candidate masks.
 PROMPT_KEYS = [
     "dataset", "modality", "target", "subject", "patient", "image_id",
-    "label_value", "model", "strategy", "jitter", "seed",
+    "label_value", "model", "strategy", "jitter", "jitter_points", "jitter_box_mode",
+    "seed",
 ]
+
+#: Defaults for result files written before a column existed. Both name the
+#: reading of the paper's perturbation protocol that was in use at the time.
+LEGACY_DEFAULTS = {"jitter_points": "all", "jitter_box_mode": "perturb"}
 
 
 def load_results(paths: str | Path | Iterable[str | Path]) -> pd.DataFrame:
@@ -79,6 +84,22 @@ def load_results(paths: str | Path | Iterable[str | Path]) -> pd.DataFrame:
         raise FileNotFoundError(f"no result shards found under {paths}")
 
     frame = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+
+    for column, default in LEGACY_DEFAULTS.items():
+        if column not in frame.columns:
+            # A file that names a non-default reading in its filename but does
+            # not carry it as a column predates the fix, and filling the default
+            # would mislabel it as the other reading - which no later check
+            # could catch, because the two are then indistinguishable.
+            named = [f.name for f in files if "reading" in f.name]
+            if named:
+                raise ValueError(
+                    f"{len(named)} result file(s) encode a perturbation reading in their "
+                    f"name but not in their columns, e.g. {named[0]}. They were written "
+                    "before the reading became a column; delete and regenerate them."
+                )
+            frame[column] = default
+
     missing = set(PROMPT_KEYS + ["candidate", "predicted_iou", "dice"]) - set(frame.columns)
     if missing:
         raise ValueError(f"result files are missing columns: {sorted(missing)}")

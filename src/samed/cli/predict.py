@@ -137,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
                 writer.writerows(score_candidates(
                     masks, ground_truth, row, model=args.model,
                     strategy=strategy, jitter=args.jitter, seed=args.seed,
+                    jitter_points=args.jitter_points, jitter_box_mode=args.jitter_box_mode,
                 ))
                 written += len(masks)
 
