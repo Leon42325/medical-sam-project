@@ -118,6 +118,16 @@ def _correlations(merged, args) -> None:
         "fourier_corrected": ("complexity", 12), "fourier_corrected_sig": ("sig", 5),
     })
 
+    oracle = attribute_correlations(merged, outcome="dice_oracle", seed=args.seed)
+    _print("The same, but for DICE under the paper's own oracle rule", oracle,
+           CORRELATION_COLUMNS)
+    print(
+        "\nComparing this with the first table shows the mechanism: selecting the best\n"
+        "candidate by ground truth is worth most where the object is hard, so it damps\n"
+        "the attribute dependence the paper set out to measure. The oracle rule does\n"
+        "not only inflate the scores - it flattens their relationship with the object."
+    )
+
     gap = attribute_correlations(merged, outcome="oracle_gap", seed=args.seed)
     _print("Partial rank correlation of the ORACLE GAP with the same attributes",
            gap, CORRELATION_COLUMNS)
@@ -133,6 +143,7 @@ def _correlations(merged, args) -> None:
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)
         published.to_csv(args.out / "correlations_dice.csv", index=False)
+        oracle.to_csv(args.out / "correlations_dice_oracle.csv", index=False)
         corrected.to_csv(args.out / "correlations_dice_corrected_fourier.csv", index=False)
         gap.to_csv(args.out / "correlations_oracle_gap.csv", index=False)
 

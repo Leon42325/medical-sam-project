@@ -432,3 +432,21 @@ def test_an_unknown_jitter_level_is_refused(tmp_path, capsys):
 def test_jitter_can_be_pooled_on_request(tmp_path):
     root = _jitter_results(tmp_path)
     assert analyse_cli.main(["--results", str(root), "--jitter", "all"]) == 0
+
+
+def test_the_oracle_rule_flattens_attribute_dependence():
+    """The mechanism behind the gap: picking the best candidate by ground truth
+    is worth most where the object is hard, so it damps exactly the relationship
+    the paper's Table 6 sets out to measure."""
+    frame = _attribute_frame(600)
+    # A deployable rule tracks the object's contrast; an oracle rule recovers a
+    # good mask regardless, so its scores depend on contrast far less.
+    frame["oracle_gap"] = np.clip(0.4 - 0.3 * frame["intensity_difference"], 0, None)
+    frame["dice_oracle"] = frame["dice_score"] + frame["oracle_gap"]
+
+    deployable = attribute_correlations(frame, outcome="dice_score", resamples=50)
+    oracle = attribute_correlations(frame, outcome="dice_oracle", resamples=50)
+    gap = attribute_correlations(frame, outcome="oracle_gap", resamples=50)
+
+    assert oracle["intensity_difference"].iloc[0] < deployable["intensity_difference"].iloc[0]
+    assert gap["intensity_difference"].iloc[0] < 0, "the gap grows as contrast falls"
