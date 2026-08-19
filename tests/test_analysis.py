@@ -489,3 +489,26 @@ def test_two_readings_of_the_same_prompt_are_not_duplicates(tmp_path):
     frame = load_results(tmp_path)
     assert len(frame) == 6
     assert set(frame["jitter_points"]) == {"all", "first"}
+
+
+def test_defaults_reach_older_files_even_beside_newer_ones(tmp_path):
+    """Filling on the concatenated frame silently leaves the old rows NaN as
+    soon as one newer file supplies the column."""
+    old = _candidates(jitter="10-20")           # no reading columns at all
+    path = tmp_path / "prompted-shard-0000-of-0002.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(old[0]))
+        writer.writeheader()
+        writer.writerows(old)
+
+    new = _candidates(jitter="10-20", image_id="img9",
+                      jitter_points="first", jitter_box_mode="shift")
+    path = tmp_path / "prompted-shard-0001-of-0002-readingfirstshift.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(new[0]))
+        writer.writeheader()
+        writer.writerows(new)
+
+    frame = load_results(tmp_path)
+    assert not frame["jitter_points"].isna().any()
+    assert set(frame["jitter_points"]) == {"all", "first"}

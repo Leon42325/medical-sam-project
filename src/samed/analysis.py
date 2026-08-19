@@ -83,22 +83,30 @@ def load_results(paths: str | Path | Iterable[str | Path]) -> pd.DataFrame:
     if not files:
         raise FileNotFoundError(f"no result shards found under {paths}")
 
-    frame = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
-
-    for column, default in LEGACY_DEFAULTS.items():
-        if column not in frame.columns:
-            # A file that names a non-default reading in its filename but does
-            # not carry it as a column predates the fix, and filling the default
-            # would mislabel it as the other reading - which no later check
-            # could catch, because the two are then indistinguishable.
-            named = [f.name for f in files if "reading" in f.name]
-            if named:
+    # Defaults have to be applied per file, before concatenation. Filling them
+    # on the combined frame instead only works while *every* file predates the
+    # column; as soon as one file carries it, the column exists and the older
+    # rows keep a NaN that no default ever reaches.
+    frames = []
+    for path in files:
+        piece = pd.read_csv(path)
+        for column, default in LEGACY_DEFAULTS.items():
+            if column in piece.columns:
+                continue
+            # A file naming a non-default reading in its filename but not
+            # carrying it as a column predates the fix, and defaulting it would
+            # mislabel it as the other reading - which nothing downstream could
+            # catch, since the two would then be indistinguishable.
+            if "reading" in path.name:
                 raise ValueError(
-                    f"{len(named)} result file(s) encode a perturbation reading in their "
-                    f"name but not in their columns, e.g. {named[0]}. They were written "
-                    "before the reading became a column; delete and regenerate them."
+                    f"{path.name} encodes a perturbation reading in its name but not "
+                    "in its columns. It was written before the reading became a "
+                    "column; delete and regenerate it."
                 )
-            frame[column] = default
+            piece[column] = default
+        frames.append(piece)
+
+    frame = pd.concat(frames, ignore_index=True)
 
     missing = set(PROMPT_KEYS + ["candidate", "predicted_iou", "dice"]) - set(frame.columns)
     if missing:
