@@ -465,7 +465,7 @@ def test_the_perturbation_reading_is_carried_in_the_data(tmp_path):
         writer.writeheader()
         writer.writerows(rows)
 
-    with pytest.raises(ValueError, match="encode a perturbation reading in their"):
+    with pytest.raises(ValueError, match="encodes a perturbation reading in its"):
         load_results(tmp_path)
 
     assert set(LEGACY_DEFAULTS) <= set(PROMPT_KEYS)
