@@ -154,6 +154,19 @@ MedSAM (trained with box jitter of 0–20 px) degrades more gracefully under box
 SAM-Med2D (point-and-box training) degrades more gracefully under point perturbation.
 *Test:* replication of Table 8's jitter protocol across all models; compare degradation slopes.
 
+**MEASURED, and it turned into something sharper than H4 asked.** The protocol is one sentence -
+randomness added "to the centers and boxes" - and it does not say how many points move. Running
+both readings identifies which the paper used: the drop ratio between one point and five is 4.6x
+published, 7.1x when only the centre is displaced, and 1.0x when every point is. The published
+conclusion that more points confer robustness exists only under the first reading.
+
+That reading leaves the four extra points of S3/S4 - obtained by uniform sampling *of the ground
+truth mask* - exactly where they were. The robustness being measured is therefore conferred by
+points that require the answer to place. This is the mask-matching defect again in a second
+place, and it supplies the report's unifying thesis: **every headline conclusion of the paper
+depends on evaluation-time access to the ground truth**, whether through mask selection or
+through prompts that only a labelled mask can position.
+
 > **Why this is not a leaderboard.** A plain "which medical SAM wins" table is uninteresting and already
 > exists in the literature. The contribution here is the **decomposition** of the gains — attribute-wise
 > (H2), domain-wise (H3), and robustness-wise (H4) — using the original paper's own perception framework as

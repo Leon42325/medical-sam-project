@@ -54,6 +54,38 @@ everything-mode performance was supplied by the ground truth. The paper asks "ho
 obtained from SAM when there is no GT?" in its discussion, and reports S1 DICE as a
 performance figure anyway; 0.569 → 0.069 is the size of that objection.
 
+### The same leak explains the paper's robustness conclusion
+
+Table 8 reports that displacing a prompt by 20–30 px costs SAM a great deal under one point
+(−14.6 DICE) and almost nothing under five (−4.4) — the basis for its conclusion that more
+points make the model more robust. The protocol behind it is one sentence: randomness was added
+"to the centers and boxes". How many points move is not stated, and the answer decides the
+conclusion.
+
+DICE drop at 20–30 px, under the paper's own oracle rule:
+
+| strategy | published | only the centre moves | every point moves |
+|---|---|---|---|
+| S2 one point | 0.146 | 0.442 | 0.442 |
+| S3 five points | **0.044** | **0.090** | **0.449** |
+| S4 five ± five | **0.032** | **0.062** | **0.433** |
+| S5 box | 0.241 | 0.615 | 0.634 |
+
+The ratio of S2's drop to S4's is 4.6× in the paper, 7.1× when only the centre moves, and
+**1.0× when every point moves**. So the paper displaced the centre alone — and its robustness
+finding is a property of that choice, not of the model.
+
+It has to be, because the four extra points of S3 and S4 are obtained by *uniform sampling of
+the ground-truth mask*. Leaving them untouched leaves four ground-truth-derived points sitting
+exactly where they should be. No user has those points; a clinician clicking five times misses
+five times. Under that reading five points are no steadier than one.
+
+**This is the same defect as the mask-matching rule, in a second place.** Both let the
+evaluation use information no deployment has, and each of the paper's headline conclusions
+rests on the part that leaks. Our absolute drops remain 2–3× the published ones even under the
+matching reading, which the subset difference (9 abdominal targets against 125) and our higher
+baseline only partly explain; the qualitative pattern matches, the magnitude does not.
+
 ### The paper's own perception analysis replicates — and the gap tracks difficulty
 
 Partial rank correlations of DICE with object attributes (paper Table 6) come out with every sign and
