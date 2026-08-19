@@ -103,6 +103,17 @@ effect.
 *Test:* Spearman partial correlation per strategy, replicating Table 6; agreement declared if the sign and
 the ordering of |ρ| match and our ρ falls within the bootstrap CI of the published value.
 
+**VERDICT: supported** (CHAOS, 9 targets, 40 patients, SAM ViT-B and ViT-H). Intensity difference is the
+strongest predictor at ρ = +0.36…+0.56 against the paper's +0.45…+0.64; boundary complexity is negative at
+−0.14…−0.19 against −0.42…−0.62; size is weakly positive; modality and aspect ratio are indistinguishable
+from zero, as reported. Every sign and the ordering of the effects match.
+
+The one substantial deviation is the strength of the complexity correlation, and it has a plain cause:
+**range restriction in the predictor**. Nine abdominal organs are all comparatively smooth and compact,
+while the paper's 191,779 structures include retinal vessels, neural structures and adenocarcinoma, whose
+boundaries span a far wider range. This is the concrete argument for adding a fundus dataset next - it is
+the regime our subset lacks, not merely more data.
+
 **H2 — Medical fine-tuning flattens the attribute-dependence slope rather than shifting the mean.**
 MedSAM / SAM-Med2D / MedSAM2 gain most in the *low-contrast, high-boundary-complexity* regime, i.e. they
 reduce |ρ| against Fourier order and intensity difference.
@@ -327,9 +338,14 @@ than an order — consistent with the values up to ~180 in the paper's Fig. 14, 
 order would reach. The quantity still ranks shapes monotonically by complexity (circle 1.4 < hexagon 9.6 <
 blunt star 21 < sharp star 106), so the paper's qualitative conclusion may well survive; but its scale is
 uninterpretable, and *the attribute at the centre of H1 and H2 is mislabelled*. **We report both variants**
-(`patience=1` reproduces the paper, `patience=None` searches to the true order) and test whether the sign
-and strength of the Dice–complexity correlation change. If they do, Table 6's headline correlation needs
-restating.
+(`patience=1` reproduces the paper, `patience=None` searches to the true order).
+
+**MEASURED OUTCOME: the flaw is real and it attenuates the paper's own conclusion rather than
+overturning it.** On CHAOS, the corrected measure gives a *consistently stronger* correlation with DICE —
+S2 −0.140 → −0.161, S3 −0.170 → −0.200, S5 −0.170 → −0.204, S6 −0.192 → −0.228, roughly 15–20 % relative,
+with sign and significance unchanged. So the criterion does not invalidate Table 6; it understates it. The
+finding to report is the methodological one, stated without inflation: a defective measure that happens to
+be conservative.
 
 **Improvements to the method / implementation** (also required by the rubric): embedding cache reuse across
 all strategies and jitter seeds (already in the upstream repo for box, extended by us to all six strategies

@@ -53,6 +53,21 @@ everything-mode performance was supplied by the ground truth. The paper asks "ho
 obtained from SAM when there is no GT?" in its discussion, and reports S1 DICE as a
 performance figure anyway; 0.569 → 0.069 is the size of that objection.
 
+### The paper's own perception analysis replicates — and the gap tracks difficulty
+
+Partial rank correlations of DICE with object attributes (paper Table 6) come out with every sign and
+ordering intact: intensity contrast is the strongest predictor (+0.36…+0.56 against the paper's
++0.45…+0.64), boundary complexity is negative, size weakly positive, modality and aspect ratio
+indistinguishable from zero. Complexity is ~3× weaker than published, which is what range restriction
+looks like: nine abdominal organs cover far less of the shape spectrum than 191,779 structures including
+retinal vessels.
+
+Applying the same analysis to the **oracle gap** — which the paper does not do — shows where its rule
+inflates most. For every prompted strategy the gap grows as contrast falls (ρ = −0.13…−0.43) and as
+boundaries get more complex (+0.09…+0.13). **The published numbers are least attainable exactly where
+segmentation is hardest**, so the oracle rule does not merely lift the scores, it flattens their
+dependence on the object — damping the very effect Table 6 is about.
+
 ---
 
 ## Findings from auditing the paper and its successors
@@ -81,7 +96,12 @@ to ~180 in the paper's Fig. 14, which no genuine harmonic order reaches. It stil
 monotonically by complexity, so the qualitative conclusion may hold; but the attribute at the
 centre of the paper's perception analysis is mislabelled. Both variants are implemented
 (`fourier_order(patience=1)` reproduces the paper, `patience=None` searches to the true order)
-so the effect on the correlation analysis can be measured rather than assumed.
+so the effect could be measured rather than assumed.
+
+**Measured on CHAOS, the flaw is conservative.** The corrected measure correlates *more* strongly with
+DICE than the published one (S5 −0.170 → −0.204, S6 −0.192 → −0.228; sign and significance unchanged), so
+the defective criterion attenuates the paper's own conclusion instead of manufacturing it. The
+methodological error is real and worth fixing; the conclusion drawn from it survives.
 
 **2. The obvious out-of-domain modalities are not out of domain.**
 
@@ -121,7 +141,7 @@ src/samed/
   analysis.py    selection rules, cluster bootstrap, paired model comparison
   cli/           fetch -> prepare -> embed -> predict / everything -> analyse
 scripts/     TinyGPU environment setup and Slurm array jobs
-tests/       177 tests, all runnable on a laptop without a GPU
+tests/       190 tests, all runnable on a laptop without a GPU
 ```
 
 Two conventions are load-bearing. Nothing in `samed` imports `torch`, so the analysis layer
