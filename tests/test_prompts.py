@@ -181,3 +181,47 @@ def test_jitter_clipping_keeps_the_box_inside_the_image_and_well_formed(square):
 def test_unknown_strategy_is_rejected(square):
     with pytest.raises(ValueError, match="unknown strategy"):
         build_prompt(square, "S7")
+
+
+def test_jitter_can_move_only_the_centre_point(square):
+    """Which points move decides one of the paper's conclusions.
+
+    The paper adds randomness "to the centers and boxes" and finds that more
+    points make SAM more robust. That follows only if the extra points stay
+    where they were: displacing all five leaves a five-point prompt no steadier
+    than a single one.
+    """
+    rng = np.random.default_rng(0)
+    prompt = build_prompt(square, "S3")
+
+    every = jitter_prompt(prompt, 20, 30, rng, points="all")
+    moved = np.linalg.norm(every.point_coords - prompt.point_coords, axis=1)
+    assert (moved > 1).all(), "all five points move"
+
+    rng = np.random.default_rng(0)
+    centre_only = jitter_prompt(prompt, 20, 30, rng, points="first")
+    moved = np.linalg.norm(centre_only.point_coords - prompt.point_coords, axis=1)
+    assert moved[0] >= 20 - 1e-6
+    assert (moved[1:] == 0).all(), "the uniformly sampled points stay put"
+
+
+def test_centre_only_jitter_leaves_negative_points_alone(square):
+    rng = np.random.default_rng(1)
+    prompt = build_prompt(square, "S4")
+    jittered = jitter_prompt(prompt, 20, 30, rng, points="first")
+
+    negatives = prompt.point_labels == 0
+    np.testing.assert_array_equal(
+        jittered.point_coords[negatives], prompt.point_coords[negatives]
+    )
+
+
+def test_the_two_point_readings_differ_measurably(square):
+    rng = np.random.default_rng(2)
+    prompt = build_prompt(square, "S4")
+    every = jitter_prompt(prompt, 20, 30, np.random.default_rng(2), points="all")
+    centre = jitter_prompt(prompt, 20, 30, np.random.default_rng(2), points="first")
+
+    total_all = np.linalg.norm(every.point_coords - prompt.point_coords, axis=1).sum()
+    total_one = np.linalg.norm(centre.point_coords - prompt.point_coords, axis=1).sum()
+    assert total_all > 5 * total_one * 0.8

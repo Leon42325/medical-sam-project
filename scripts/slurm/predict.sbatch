@@ -38,13 +38,16 @@ MANIFEST="${MANIFEST:-$DATA_ROOT/manifest.csv}"
 STRATEGIES="${STRATEGIES:-S2,S3,S4,S5,S6}"
 JITTER="${JITTER:-none}"          # none | 0-10 | 10-20 | 20-30
 SEED="${SEED:-0}"
+# The two readings of the paper's perturbation protocol; see samed.prompts.
+JITTER_POINTS="${JITTER_POINTS:-all}"        # all | first
+JITTER_BOX_MODE="${JITTER_BOX_MODE:-perturb}"  # perturb | shift
 SHARDS="${SLURM_ARRAY_TASK_COUNT:-1}"
 SHARD="${SLURM_ARRAY_TASK_ID:-0}"
 
 OUT_DIR="$RESULT_ROOT/raw/$MODEL/jitter-$JITTER/seed-$SEED"
 mkdir -p "$OUT_DIR"
 
-log "model=$MODEL strategies=$STRATEGIES jitter=$JITTER seed=$SEED shard=$SHARD/$SHARDS"
+log "model=$MODEL strategies=$STRATEGIES jitter=$JITTER ($JITTER_POINTS/$JITTER_BOX_MODE) seed=$SEED shard=$SHARD/$SHARDS"
 
 EMBEDDINGS=$(stage_to_tmpdir "$EMBED_ROOT/$MODEL" "embeddings-$MODEL")
 
@@ -56,6 +59,8 @@ srun python -m samed.cli.predict \
     --labels "$DATA_ROOT/labels" \
     --strategies "$STRATEGIES" \
     --jitter "$JITTER" \
+    --jitter-points "$JITTER_POINTS" \
+    --jitter-box-mode "$JITTER_BOX_MODE" \
     --seed "$SEED" \
     --out "$OUT_DIR" \
     --shard "$SHARD" \

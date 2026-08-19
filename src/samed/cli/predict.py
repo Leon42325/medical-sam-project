@@ -53,6 +53,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--strategies", default="S2,S3,S4,S5,S6")
     parser.add_argument("--jitter", default="none", choices=sorted(JITTER_LEVELS))
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--jitter-points", choices=["all", "first"], default="all",
+                        help="displace every point, or only the centre of mass")
+    parser.add_argument("--jitter-box-mode", choices=["perturb", "shift"], default="perturb",
+                        help="move each box edge independently, or translate it rigidly")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--shard", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)
@@ -81,7 +85,12 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
 
-    destination = args.out / shard_filename("prompted", args.shard, args.num_shards)
+    reading = None if (args.jitter == "none"
+                       or (args.jitter_points == "all" and args.jitter_box_mode == "perturb")
+                       ) else f"{args.jitter_points}{args.jitter_box_mode}"
+    destination = args.out / shard_filename(
+        "prompted", args.shard, args.num_shards, reading=reading
+    )
     if args.skip_existing and destination.exists():
         print(f"shard {args.shard}: already done")
         return 0
@@ -120,7 +129,8 @@ def main(argv: list[str] | None = None) -> int:
                     # reproduces exactly the same perturbation.
                     rng = np.random.default_rng([args.seed, position, ord(strategy[1])])
                     prompt = jitter_prompt(
-                        prompt, *band, rng, image_shape=ground_truth.shape
+                        prompt, *band, rng, image_shape=ground_truth.shape,
+                        points=args.jitter_points, box_mode=args.jitter_box_mode,
                     )
 
                 masks = model.predict(cached, prompt)

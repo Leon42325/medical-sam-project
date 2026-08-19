@@ -273,6 +273,7 @@ def jitter_prompt(
     *,
     image_shape: tuple[int, int] | None = None,
     box_mode: Literal["perturb", "shift"] = "perturb",
+    points: Literal["all", "first"] = "all",
 ) -> Prompt:
     """Randomly displace a prompt, reproducing the protocol behind Table 8.
 
@@ -290,6 +291,17 @@ def jitter_prompt(
     rigidly.  We default to ``perturb`` and report both, since the paper's
     headline claim -- a 24-30 % DICE drop at the 20-30 px level -- is the single
     number most sensitive to this reading.
+
+    AMBIGUITY: nor does it say how many points move.  The sentence speaks of
+    "the centers", and the centre of mass is one point per object, so
+    ``points="first"`` displaces only that one and leaves the uniformly sampled
+    extras untouched; ``points="all"`` displaces every point.  The choice decides
+    an entire conclusion.  Under ``all`` the multi-point strategies are no more
+    robust than a single point, because all five points move together; under
+    ``first`` four of the five stay put and S3/S4 barely degrade - which is
+    exactly the paper's finding that "with the increase in the number of point
+    prompts, the decline of DICE could be alleviated".  Running both is how the
+    unstated choice is identified rather than guessed.
     """
     if low < 0 or high < low:
         raise ValueError(f"require 0 <= low <= high, got low={low}, high={high}")
@@ -301,7 +313,10 @@ def jitter_prompt(
 
     coords = prompt.point_coords
     if coords is not None:
-        coords = coords + _offsets(len(coords)).astype(np.float32)
+        displacement = np.zeros_like(coords)
+        moved = 1 if points == "first" else len(coords)
+        displacement[:moved] = _offsets(moved)
+        coords = coords + displacement.astype(np.float32)
 
     box = prompt.box
     if box is not None:
