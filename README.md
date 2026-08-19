@@ -7,8 +7,8 @@ actually help, and does it survive contact with data the model was not trained o
 
 > **Status: in progress.** First results are in, on CHAOS only — 9 object-modality targets,
 > 40 patients, abdominal organs, SAM ViT-B and ViT-H, all six prompting strategies, plus the
-> object-attribute analysis. Everything below is scoped to that; the remaining datasets, the
-> medical-specialised models and the prompt-perturbation study are not finished yet.
+> object-attribute analysis and the prompt-perturbation study. Everything below is scoped to
+> that; the remaining datasets and the medical-specialised models are still to come.
 
 ---
 
