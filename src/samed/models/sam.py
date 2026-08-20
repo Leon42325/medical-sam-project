@@ -23,7 +23,7 @@ import numpy as np
 from samed.models.base import MaskSet, PromptableSegmenter, register
 from samed.prompts import Prompt
 
-__all__ = ["SamWrapper"]
+__all__ = ["SamWrapper", "as_rgb_uint8"]
 
 
 class SamWrapper(PromptableSegmenter):
@@ -60,7 +60,7 @@ class SamWrapper(PromptableSegmenter):
         to 2 MB per image, and the encoder's own output precision does not
         justify float32 on disk.
         """
-        image = _as_rgb_uint8(image)
+        image = as_rgb_uint8(image)
         with self._torch.inference_mode():
             self._predictor.set_image(image)
             features = self._predictor.features.detach().cpu().numpy().astype(np.float16)
@@ -114,7 +114,7 @@ class SamWrapper(PromptableSegmenter):
 
         generator = SamAutomaticMaskGenerator(self._model, points_per_side=points_per_side)
         with self._torch.inference_mode():
-            records = generator.generate(_as_rgb_uint8(image))
+            records = generator.generate(as_rgb_uint8(image))
 
         if not records:
             height, width = image.shape[:2]
@@ -132,8 +132,12 @@ class SamWrapper(PromptableSegmenter):
         )
 
 
-def _as_rgb_uint8(image: np.ndarray) -> np.ndarray:
-    """SAM expects HWC uint8 RGB; the preprocessed data is single-channel 0-255."""
+def as_rgb_uint8(image: np.ndarray) -> np.ndarray:
+    """SAM expects HWC uint8 RGB; the preprocessed data is single-channel 0-255.
+
+    Shared with the fine-tuning path deliberately. Training and inference must
+    agree on this conversion, and a second copy is a second chance to disagree.
+    """
     array = np.asarray(image)
     if array.ndim == 2:
         array = np.repeat(array[:, :, None], 3, axis=2)

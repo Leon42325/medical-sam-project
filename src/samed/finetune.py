@@ -138,3 +138,33 @@ def segmentation_loss(logits, targets, *, dice_weight: float = 1.0, bce_weight: 
 
     bce = functional.binary_cross_entropy_with_logits(logits, targets, reduction="none")
     return dice_weight * dice.mean() + bce_weight * bce.mean(dim=(-2, -1)).mean()
+
+
+def decode(sam, embeddings, boxes, input_size, original_size):
+    """Mask logits at the original resolution, from embeddings and box prompts.
+
+    Split out from the encoder so that both training paths share it. With the
+    encoder frozen the embeddings come from the cache and this is the entire
+    forward pass; with LoRA attached they come from ``sam.image_encoder`` and
+    this is only the tail.
+
+    Box prompts because the paper fine-tunes with box prompts, and the prompt
+    encoder stays in ``no_grad`` because it is frozen in every arm - running it
+    under gradient would only build a graph nothing can use.
+    """
+    import torch
+
+    with torch.no_grad():
+        sparse, dense = sam.prompt_encoder(points=None, boxes=boxes, masks=None)
+
+    low_resolution, _ = sam.mask_decoder(
+        image_embeddings=embeddings,
+        image_pe=sam.prompt_encoder.get_dense_pe(),
+        sparse_prompt_embeddings=sparse,
+        dense_prompt_embeddings=dense,
+        multimask_output=False,
+    )
+    # postprocess_masks removes the padding SAM added and resizes back, so the
+    # loss is taken against the annotation as drawn rather than against a
+    # letterboxed copy of it.
+    return sam.postprocess_masks(low_resolution, input_size, original_size)
