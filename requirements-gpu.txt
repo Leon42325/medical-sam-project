@@ -9,6 +9,11 @@
 
 segment-anything @ git+https://github.com/facebookresearch/segment-anything.git
 
+# LoRA for the fine-tuning experiment. Not reimplemented - peft supplies the
+# adapters, and they attach to the image encoder's nn.Linear projections
+# (blocks.*.attn.qkv, attn.proj), verified against a real checkpoint.
+peft>=0.10
+
 # Pending, added once each has been verified against a real checkpoint on the
 # cluster rather than guessed from documentation:
 #   sam2         - facebookresearch/sam2          (SAM 2.1 generation control)
