@@ -107,7 +107,8 @@ python - <<'CHECK'
 import importlib, sys
 
 missing = []
-for module in ("torch", "cv2", "pydicom", "nibabel", "segment_anything", "samed"):
+for module in ("torch", "cv2", "pydicom", "nibabel", "segment_anything",
+               "peft", "samed"):
     try:
         importlib.import_module(module)
         print(f"  ok    {module}")

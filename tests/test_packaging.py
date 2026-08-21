@@ -133,3 +133,26 @@ def test_batch_scripts_do_not_locate_their_setup_through_dollar_zero():
         assert "SLURM_SUBMIT_DIR" in text, (
             f"{script.name} must locate the repository through SLURM_SUBMIT_DIR"
         )
+
+
+def test_the_environment_check_covers_every_runtime_import():
+    """A dependency missing from the check surfaces in a queued job instead of
+    at setup time - which cost an eight-hour queue wait once already."""
+    setup = (ROOT / "scripts" / "setup_tinygpu.sh").read_text()
+    for module in ("torch", "cv2", "pydicom", "nibabel", "segment_anything", "peft"):
+        assert f'"{module}"' in setup, f"{module} is not verified by setup_tinygpu.sh"
+
+
+def test_no_extra_pulls_torch_from_pypi():
+    """Installing an extra that lists torch can replace the cluster's CUDA build
+    with a CPU one, and nothing reports it until a GPU job sees no GPU."""
+    pyproject = (ROOT / "pyproject.toml").read_text()
+    extras = pyproject.split("[project.optional-dependencies]")[1].split("[build-system]")[0]
+    # Comments in that section explain the rule and naturally mention torch;
+    # what must not contain it is a dependency line.
+    declarations = [
+        line for raw in extras.splitlines()
+        if (line := raw.strip()) and not line.startswith("#")
+    ]
+    offenders = [line for line in declarations if "torch" in line]
+    assert not offenders, offenders

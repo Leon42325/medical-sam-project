@@ -21,8 +21,9 @@ dependencies = [
 # Nothing in `samed` imports torch, so the analysis layer stays testable on a laptop.
 [project.optional-dependencies]
 dev = ["pytest>=7.4"]
-# Fine-tuning needs the model stack; the analysis layer still does not.
-finetune = ["torch>=2.0", "torchvision", "peft>=0.10"]
+# No `finetune` extra listing torch: installing it on the cluster would let pip
+# replace the maintained CUDA build with a PyPI CPU one. The model stack comes
+# from requirements-gpu.txt, installed by scripts/setup_tinygpu.sh.
 
 [build-system]
 requires = ["setuptools>=68"]
