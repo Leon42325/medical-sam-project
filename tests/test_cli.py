@@ -28,8 +28,9 @@ class _StubModel(PromptableSegmenter):
     supports = frozenset({"points", "box"})
     input_size = 1024
 
-    def __init__(self, checkpoint: str = "", device: str = "cpu") -> None:
+    def __init__(self, checkpoint: str = "", device: str = "cpu", **kwargs) -> None:
         self.checkpoint = checkpoint
+        self.name = kwargs.get("name") or self.name
 
     def encode(self, image):
         return {
@@ -422,3 +423,27 @@ def test_attributes_join_onto_results(workspace):
                               load_attributes(attributes))
     assert len(merged) == 4
     assert {"area", "fourier_paper", "oracle_gap"} <= set(merged.columns)
+
+
+def test_a_fine_tuned_arm_is_recorded_under_its_own_name(workspace):
+    """Arms and the checkpoint they started from share every other key, so
+    without a distinct name their rows collide and load_results rejects the lot."""
+    embeddings = _run_embed(workspace)
+    out = workspace / "named-arm"
+    _run_predict(workspace, embeddings, strategies="S5", out=out,
+                 model_name="sam_vit_b_lora_encoder")
+
+    rows = _read_rows(out / "prompted-shard-0000-of-0001.csv")
+    assert {r["model"] for r in rows} == {"sam_vit_b_lora_encoder"}
+
+
+def test_zero_shot_and_fine_tuned_results_coexist(workspace):
+    from samed.analysis import load_results
+
+    embeddings = _run_embed(workspace)
+    shared = workspace / "both-models"
+    _run_predict(workspace, embeddings, strategies="S5", out=shared)
+    _run_predict(workspace, embeddings, strategies="S5", out=shared,
+                 model_name="sam_vit_b_decoder", num_shards=2)
+
+    assert set(load_results(shared)["model"]) == {"stub_cli_model", "sam_vit_b_decoder"}

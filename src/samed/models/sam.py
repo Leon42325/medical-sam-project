@@ -38,6 +38,8 @@ class SamWrapper(PromptableSegmenter):
         device: str = "cuda",
         supports: frozenset[str] = frozenset({"points", "box", "everything"}),
         multimask_output: bool = True,
+        lora: str | None = None,
+        decoder: str | None = None,
     ) -> None:
         import torch
         from segment_anything import SamPredictor, sam_model_registry
@@ -49,7 +51,10 @@ class SamWrapper(PromptableSegmenter):
 
         self._torch = torch
         self._device = device
-        self._model = sam_model_registry[variant](checkpoint=checkpoint).to(device).eval()
+        model = sam_model_registry[variant](checkpoint=checkpoint)
+        if lora or decoder:
+            model = _apply_adaptation(model, lora=lora, decoder=decoder, torch=torch)
+        self._model = model.to(device).eval()
         self._predictor = SamPredictor(self._model)
 
     # ------------------------------------------------------------------ encode
@@ -132,6 +137,27 @@ class SamWrapper(PromptableSegmenter):
         )
 
 
+def _apply_adaptation(model, *, lora: str | None, decoder: str | None, torch):
+    """Load what a fine-tuning arm learned back onto a pretrained SAM.
+
+    LoRA adapters are merged into the base weights rather than left as separate
+    modules: merging costs nothing at load time, removes the per-layer overhead
+    at inference, and leaves a plain SAM that every existing code path - the
+    predictor, the embedding cache, the automatic mask generator - handles
+    without knowing an adapter was ever involved.
+    """
+    if lora:
+        from peft import PeftModel
+
+        wrapped = PeftModel.from_pretrained(model.image_encoder, lora)
+        model.image_encoder = wrapped.merge_and_unload()
+    if decoder:
+        state = torch.load(decoder, map_location="cpu", weights_only=True)
+        missing, unexpected = model.mask_decoder.load_state_dict(state, strict=True)
+        assert not missing and not unexpected
+    return model
+
+
 def as_rgb_uint8(image: np.ndarray) -> np.ndarray:
     """SAM expects HWC uint8 RGB; the preprocessed data is single-channel 0-255.
 
@@ -147,17 +173,22 @@ def as_rgb_uint8(image: np.ndarray) -> np.ndarray:
 
 
 @register("sam_vit_b")
-def _sam_vit_b(checkpoint: str, device: str = "cuda") -> SamWrapper:
-    return SamWrapper(name="sam_vit_b", variant="vit_b", checkpoint=checkpoint, device=device)
+def _sam_vit_b(checkpoint: str, device: str = "cuda", *, lora: str | None = None,
+            decoder: str | None = None, name: str = "sam_vit_b") -> SamWrapper:
+    return SamWrapper(name=name, variant="vit_b", checkpoint=checkpoint,
+                      device=device, lora=lora, decoder=decoder)
 
 
 @register("sam_vit_h")
-def _sam_vit_h(checkpoint: str, device: str = "cuda") -> SamWrapper:
-    return SamWrapper(name="sam_vit_h", variant="vit_h", checkpoint=checkpoint, device=device)
+def _sam_vit_h(checkpoint: str, device: str = "cuda", *, lora: str | None = None,
+            decoder: str | None = None, name: str = "sam_vit_h") -> SamWrapper:
+    return SamWrapper(name=name, variant="vit_h", checkpoint=checkpoint,
+                      device=device, lora=lora, decoder=decoder)
 
 
 @register("medsam")
-def _medsam(checkpoint: str, device: str = "cuda") -> SamWrapper:
+def _medsam(checkpoint: str, device: str = "cuda", *, lora: str | None = None,
+            decoder: str | None = None, name: str = "medsam") -> SamWrapper:
     """MedSAM: the same ViT-B architecture, fine-tuned for box prompts only.
 
     ``supports`` excludes points deliberately.  MedSAM was trained exclusively
@@ -167,10 +198,12 @@ def _medsam(checkpoint: str, device: str = "cuda") -> SamWrapper:
     ``multimask_output`` is False to match how the authors run it.
     """
     return SamWrapper(
-        name="medsam",
+        name=name,
         variant="vit_b",
         checkpoint=checkpoint,
         device=device,
         supports=frozenset({"box"}),
         multimask_output=False,
+        lora=lora,
+        decoder=decoder,
     )

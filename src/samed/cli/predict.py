@@ -58,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--jitter-box-mode", choices=["perturb", "shift"], default="perturb",
                         help="move each box edge independently, or translate it rigidly")
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--lora", help="a peft adapter directory from samed.cli.finetune")
+    parser.add_argument("--decoder", help="a fine-tuned mask_decoder.pt")
+    parser.add_argument("--model-name",
+                        help="what to record in the results; defaults to --model. "
+                             "Give each fine-tuning arm its own name, or its rows "
+                             "collide with the zero-shot model's.")
     parser.add_argument("--shard", type=int, default=0)
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--skip-existing", action="store_true")
@@ -98,7 +104,9 @@ def main(argv: list[str] | None = None) -> int:
     strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
     band = JITTER_LEVELS[args.jitter]
     rows = shard_of(read_manifest(args.manifest), args.shard, args.num_shards)
-    model = create(args.model, checkpoint=args.checkpoint, device=args.device)
+    name = args.model_name or args.model
+    model = create(args.model, checkpoint=args.checkpoint, device=args.device,
+                   lora=args.lora, decoder=args.decoder, name=name)
 
     applicable = [s for s in strategies if model.supports_strategy(s)]
     if skipped := sorted(set(strategies) - set(applicable)):
@@ -135,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
 
                 masks = model.predict(cached, prompt)
                 writer.writerows(score_candidates(
-                    masks, ground_truth, row, model=args.model,
+                    masks, ground_truth, row, model=name,
                     strategy=strategy, jitter=args.jitter, seed=args.seed,
                     jitter_points=args.jitter_points, jitter_box_mode=args.jitter_box_mode,
                 ))

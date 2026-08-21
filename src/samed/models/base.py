@@ -129,10 +129,17 @@ def register(name: str) -> Callable[[Callable[..., PromptableSegmenter]], Callab
     return decorator
 
 
-def create(name: str, **kwargs: Any) -> PromptableSegmenter:
-    if name not in _REGISTRY:
-        raise KeyError(f"unknown model {name!r}; registered: {sorted(_REGISTRY)}")
-    return _REGISTRY[name](**kwargs)
+def create(key: str, **kwargs: Any) -> PromptableSegmenter:
+    """Build a registered model.
+
+    The parameter is ``key``, not ``name``: the registry key selects the
+    architecture and weights, while ``name`` is what a run is recorded as, and a
+    fine-tuning arm needs a different one from the checkpoint it started from.
+    Conflating the two made ``create`` reject its own arguments.
+    """
+    if key not in _REGISTRY:
+        raise KeyError(f"unknown model {key!r}; registered: {sorted(_REGISTRY)}")
+    return _REGISTRY[key](**kwargs)
 
 
 def available() -> list[str]:
