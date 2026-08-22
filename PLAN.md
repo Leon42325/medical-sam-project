@@ -149,6 +149,22 @@ Reporting a *null* result is an acceptable and publishable outcome.
 > was trained on and report the resulting margin as evidence of domain adaptation. The audit makes that
 > error visible and, for MedSAM at least, correctable.
 
+**H5 — Medical adaptation is needed in the representation, not the readout.** *(Added after the
+LoRA experiment was scoped; it is the controlled counterpart to H2, which compares published
+medical models whose data, recipe and hyperparameters all differ at once.)*
+
+The paper froze SAM's image encoder for compute, not for a reason about learning, so its
+reported +4.39 DICE is bounded by what a mask decoder can do with unchanged features.
+*Test:* three arms differing only in where gradient flows - decoder only (the paper's
+configuration), LoRA on the encoder, both - trained on a patient-level split and compared
+paired on the test split.
+
+**VERDICT: supported.** LoRA on the encoder (0.455M trainable) gives +0.047 DICE over zero-shot
+against +0.032 for decoder-only (4.058M), on 10 held-out patients with cluster-bootstrapped
+intervals. The parameter budget favours the decoder arm 9:1, so the result is about the locus of
+adaptation rather than capacity. Fine-tuning also collapses the oracle gap from 0.029 to
+0.006-0.010, and the paper's own rule understates each arm's gain by roughly a factor of two.
+
 **H4 — Fine-tuned models inherit the prompt-jitter distribution they were trained with.**
 MedSAM (trained with box jitter of 0–20 px) degrades more gracefully under box perturbation than SAM, while
 SAM-Med2D (point-and-box training) degrades more gracefully under point perturbation.

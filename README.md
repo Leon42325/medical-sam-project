@@ -86,6 +86,35 @@ rests on the part that leaks. Our absolute drops remain 2–3× the published on
 matching reading, which the subset difference (9 abdominal targets against 125) and our higher
 baseline only partly explain; the qualitative pattern matches, the magnitude does not.
 
+### Where medical adaptation has to happen: the representation, not the readout
+
+Huang et al. fine-tune SAM in Sec. 4.12 and state why they fine-tune only the mask decoder:
+the image encoder was frozen "to minimize computation costs". Low-rank adaptation removes that
+constraint, so the question becomes answerable — and the arms below differ only in where the
+gradient is allowed to flow. Test set: 10 held-out patients, split by patient, box prompts.
+
+| arm | trainable | DICE (deployable) | vs zero-shot, paired |
+|---|---|---|---|
+| zero-shot | — | 0.898 | — |
+| mask decoder *(the paper's configuration)* | 4.058M | 0.930 | +0.032 [0.021, 0.054] |
+| **LoRA on the image encoder** | **0.455M** | **0.945** | **+0.047 [0.037, 0.071]** |
+| both | 4.513M | 0.939 | +0.042 [0.031, 0.066] |
+
+**Adapting the representation with nine times fewer parameters beats adapting the readout.**
+The parameter budget favours the decoder arm by 9:1, so capacity cannot explain the result:
+what a mask decoder can do is reweight features the encoder already computes, and on medical
+images those features are what is missing.
+
+Two further things fall out. Fine-tuning **collapses the oracle gap** — 0.029 zero-shot against
+0.010, 0.010 and 0.006 for the three arms — so adaptation improves not only the masks but the
+model's judgement of its own masks, which is precisely the deficiency the paper's rule conceals.
+And the paper's rule **understates its own fine-tuning result** by roughly a factor of two on
+every arm (decoder +0.012 under the oracle rule against +0.032 deployable).
+
+That completes the pattern. Every quantitative conclusion in the paper — prompt strategy, model
+scale, automatic mode, perturbation robustness, and fine-tuning — is compressed or reversed by
+the same leak of ground truth into the evaluation.
+
 ### The paper's own perception analysis replicates — and the gap tracks difficulty
 
 Partial rank correlations of DICE with object attributes (paper Table 6) come out with every sign and
