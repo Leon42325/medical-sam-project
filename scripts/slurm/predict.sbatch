@@ -41,18 +41,28 @@ SEED="${SEED:-0}"
 # The two readings of the paper's perturbation protocol; see samed.prompts.
 JITTER_POINTS="${JITTER_POINTS:-all}"        # all | first
 JITTER_BOX_MODE="${JITTER_BOX_MODE:-perturb}"  # perturb | shift
+# A fine-tuning arm evaluates through this same stage: the adapters are loaded
+# onto the pretrained checkpoint and merged, so nothing downstream changes.
+# MODEL_NAME must differ from MODEL, or the arm's rows collide with the
+# zero-shot model's on every key and the analysis rejects them as duplicates.
+LORA="${LORA:-}"
+DECODER="${DECODER:-}"
+MODEL_NAME="${MODEL_NAME:-$MODEL}"
 SHARDS="${SLURM_ARRAY_TASK_COUNT:-1}"
 SHARD="${SLURM_ARRAY_TASK_ID:-0}"
 
-OUT_DIR="$RESULT_ROOT/raw/$MODEL/jitter-$JITTER/seed-$SEED"
+OUT_DIR="$RESULT_ROOT/raw/$MODEL_NAME/jitter-$JITTER/seed-$SEED"
 mkdir -p "$OUT_DIR"
 
-log "model=$MODEL strategies=$STRATEGIES jitter=$JITTER ($JITTER_POINTS/$JITTER_BOX_MODE) seed=$SEED shard=$SHARD/$SHARDS"
+log "model=$MODEL as $MODEL_NAME strategies=$STRATEGIES jitter=$JITTER ($JITTER_POINTS/$JITTER_BOX_MODE) seed=$SEED shard=$SHARD/$SHARDS"
 
 EMBEDDINGS=$(stage_to_tmpdir "$EMBED_ROOT/$MODEL" "embeddings-$MODEL")
 
 srun python -m samed.cli.predict \
     --model "$MODEL" \
+    --model-name "$MODEL_NAME" \
+    ${LORA:+--lora "$LORA"} \
+    ${DECODER:+--decoder "$DECODER"} \
     --checkpoint "$CHECKPOINT" \
     --manifest "$MANIFEST" \
     --embeddings "$EMBEDDINGS" \
