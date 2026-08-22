@@ -41,7 +41,10 @@ MANIFEST="${MANIFEST:-$DATA_ROOT/manifest.csv}"
 SHARDS="${SLURM_ARRAY_TASK_COUNT:-1}"
 SHARD="${SLURM_ARRAY_TASK_ID:-0}"
 
-OUT_DIR="$EMBED_ROOT/$MODEL"
+LORA="${LORA:-}"
+# Named after what produced it, not after the base model: an adapted encoder
+# yields different embeddings and must not share a directory with the original.
+OUT_DIR="${EMBEDDINGS:-$EMBED_ROOT/${MODEL_NAME:-$MODEL}}"
 mkdir -p "$OUT_DIR"
 
 log "model=$MODEL shard=$SHARD/$SHARDS"
@@ -50,6 +53,7 @@ IMAGES=$(stage_to_tmpdir "$DATA_ROOT/images" images)
 
 srun python -m samed.cli.embed \
     --model "$MODEL" \
+    ${LORA:+--lora "$LORA"} \
     --checkpoint "$CHECKPOINT" \
     --manifest "$MANIFEST" \
     --images "$IMAGES" \

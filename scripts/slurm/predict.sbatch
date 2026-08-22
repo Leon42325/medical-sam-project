@@ -48,15 +48,21 @@ JITTER_BOX_MODE="${JITTER_BOX_MODE:-perturb}"  # perturb | shift
 LORA="${LORA:-}"
 DECODER="${DECODER:-}"
 MODEL_NAME="${MODEL_NAME:-$MODEL}"
+# Where this run's embeddings live. An adapted encoder needs its own cache, and
+# composing that path at the call site is error-prone - EMBED_ROOT is joined
+# with MODEL here, so overriding EMBED_ROOT to point at an adapter's directory
+# silently yields <adapter>/<model>, which does not exist. Set EMBEDDINGS
+# instead when the cache is not the base model's.
+EMBEDDINGS="${EMBEDDINGS:-$EMBED_ROOT/$MODEL}"
 SHARDS="${SLURM_ARRAY_TASK_COUNT:-1}"
 SHARD="${SLURM_ARRAY_TASK_ID:-0}"
 
 OUT_DIR="$RESULT_ROOT/raw/$MODEL_NAME/jitter-$JITTER/seed-$SEED"
 mkdir -p "$OUT_DIR"
 
-log "model=$MODEL as $MODEL_NAME strategies=$STRATEGIES jitter=$JITTER ($JITTER_POINTS/$JITTER_BOX_MODE) seed=$SEED shard=$SHARD/$SHARDS"
+log "model=$MODEL as $MODEL_NAME embeddings=$EMBEDDINGS strategies=$STRATEGIES jitter=$JITTER ($JITTER_POINTS/$JITTER_BOX_MODE) seed=$SEED shard=$SHARD/$SHARDS"
 
-EMBEDDINGS=$(stage_to_tmpdir "$EMBED_ROOT/$MODEL" "embeddings-$MODEL")
+STAGED=$(stage_to_tmpdir "$EMBEDDINGS" "embeddings-$MODEL_NAME")
 
 srun python -m samed.cli.predict \
     --model "$MODEL" \
@@ -65,7 +71,7 @@ srun python -m samed.cli.predict \
     ${DECODER:+--decoder "$DECODER"} \
     --checkpoint "$CHECKPOINT" \
     --manifest "$MANIFEST" \
-    --embeddings "$EMBEDDINGS" \
+    --embeddings "$STAGED" \
     --labels "$DATA_ROOT/labels" \
     --strategies "$STRATEGIES" \
     --jitter "$JITTER" \
