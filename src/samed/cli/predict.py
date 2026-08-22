@@ -32,6 +32,7 @@ import numpy as np
 
 from samed.data.manifest import read_manifest, shard_of
 from samed.models import create
+from samed.models.base import encoder_identity
 from samed.prompts import build_prompt, jitter_prompt
 from samed.scoring import FIELDS, score_candidates, shard_filename
 
@@ -76,6 +77,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _check_encoder(cached: dict, expected: str, root: Path) -> None:
+    """Refuse embeddings produced by a different encoder.
+
+    Legacy caches carry no identity; they predate adaptation and were all made
+    by the base checkpoint, so an absent field means the base model.
+    """
+    found = str(cached["encoder"]) if "encoder" in cached else expected.split("+")[0]
+    if found != expected:
+        raise ValueError(
+            f"the embedding cache in {root} was produced by {found!r}, but this run "
+            f"needs {expected!r}. The prediction path never runs the image encoder, "
+            "so using it would evaluate the wrong weights and report success. "
+            "Re-run samed.cli.embed for this model."
+        )
+
+
 def load_mask(path: Path, label_value: int) -> np.ndarray:
     import cv2
 
@@ -105,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     band = JITTER_LEVELS[args.jitter]
     rows = shard_of(read_manifest(args.manifest), args.shard, args.num_shards)
     name = args.model_name or args.model
+    expected_encoder = encoder_identity(args.model, args.lora)
     model = create(args.model, checkpoint=args.checkpoint, device=args.device,
                    lora=args.lora, decoder=args.decoder, name=name)
 
@@ -129,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             if not ground_truth.any():
                 continue
             cached = dict(np.load(args.embeddings / f"{row.image_id}.npz"))
+            _check_encoder(cached, expected_encoder, args.embeddings)
 
             for strategy in applicable:
                 prompt = build_prompt(ground_truth, strategy)

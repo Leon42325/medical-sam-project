@@ -34,7 +34,27 @@ import numpy as np
 
 from samed.prompts import Prompt
 
-__all__ = ["MaskSet", "PromptableSegmenter", "register", "create", "available"]
+__all__ = ["MaskSet", "PromptableSegmenter", "register", "create", "available",
+           "encoder_identity"]
+
+
+def encoder_identity(key: str, lora: str | None = None) -> str:
+    """What the image encoder of a run actually is.
+
+    Stored in every embedding cache and checked before the cache is used.
+    Without it, a run whose encoder has been adapted silently reads
+    embeddings produced by the unadapted one - the prediction path never
+    runs the encoder at all - and the adaptation has exactly no effect on
+    the results while the job reports success. That happened once, to the
+    LoRA arms, and the only visible symptom was that two models scored
+    identically to three decimals.
+
+    The decoder is deliberately not part of the identity: it runs after the
+    cache and a cached embedding stays valid across decoder changes.
+    """
+    from pathlib import Path
+
+    return f"{key}+lora:{Path(lora).name}" if lora else key
 
 
 @dataclass(frozen=True)

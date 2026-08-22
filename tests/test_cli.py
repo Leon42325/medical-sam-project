@@ -31,6 +31,7 @@ class _StubModel(PromptableSegmenter):
     def __init__(self, checkpoint: str = "", device: str = "cpu", **kwargs) -> None:
         self.checkpoint = checkpoint
         self.name = kwargs.get("name") or self.name
+        self.lora = kwargs.get("lora")
 
     def encode(self, image):
         return {
@@ -447,3 +448,49 @@ def test_zero_shot_and_fine_tuned_results_coexist(workspace):
                  model_name="sam_vit_b_decoder", num_shards=2)
 
     assert set(load_results(shared)["model"]) == {"stub_cli_model", "sam_vit_b_decoder"}
+
+
+def test_a_cache_from_a_different_encoder_is_refused(workspace):
+    """The failure that made a LoRA arm score identically to zero-shot.
+
+    The prediction path never runs the image encoder - it reads cached
+    embeddings - so an adapted encoder has no effect at all unless its own cache
+    is used, and the job reports success either way.
+    """
+    embeddings = _run_embed(workspace)
+    for path in embeddings.glob("*.npz"):
+        cached = dict(np.load(path))
+        cached["encoder"] = np.array("stub_cli_model+lora:somewhere")
+        with path.open("wb") as handle:
+            np.savez(handle, **cached)
+
+    with pytest.raises(ValueError, match="produced by .*but this run needs"):
+        _run_predict(workspace, embeddings, strategies="S5",
+                     out=workspace / "mismatched")
+
+
+def test_the_cache_records_which_encoder_made_it(workspace):
+    embeddings = _run_embed(workspace)
+    cached = dict(np.load(next(embeddings.glob("*.npz"))))
+    assert str(cached["encoder"]) == "stub_cli_model"
+
+
+def test_a_legacy_cache_without_the_field_still_loads(workspace):
+    """Caches written before the field existed were all made by the base
+    checkpoint, so their absence is unambiguous."""
+    embeddings = _run_embed(workspace)
+    for path in embeddings.glob("*.npz"):
+        cached = {k: v for k, v in np.load(path).items() if k != "encoder"}
+        with path.open("wb") as handle:
+            np.savez(handle, **cached)
+
+    out = _run_predict(workspace, embeddings, strategies="S5", out=workspace / "legacy")
+    assert _read_rows(out / "prompted-shard-0000-of-0001.csv")
+
+
+def test_encoder_identity_separates_adapted_from_base():
+    from samed.models.base import encoder_identity
+
+    assert encoder_identity("sam_vit_b") == "sam_vit_b"
+    assert encoder_identity("sam_vit_b", "/runs/lora_encoder") == "sam_vit_b+lora:lora_encoder"
+    assert encoder_identity("sam_vit_b") != encoder_identity("sam_vit_b", "/x/lora_encoder")
