@@ -100,10 +100,14 @@ gradient is allowed to flow. Test set: 10 held-out patients, split by patient, b
 | **LoRA on the image encoder** | **0.455M** | **0.945** | **+0.047 [0.037, 0.071]** |
 | both | 4.513M | 0.939 | +0.042 [0.031, 0.066] |
 
-**Adapting the representation with nine times fewer parameters beats adapting the readout.**
-The parameter budget favours the decoder arm by 9:1, so capacity cannot explain the result:
-what a mask decoder can do is reweight features the encoder already computes, and on medical
-images those features are what is missing.
+Compared directly and paired on the same prompts, **LoRA on the encoder beats the paper's
+configuration by +0.016 DICE [0.012, 0.019]** — an interval clear of zero, from nine times fewer
+trainable parameters. Capacity cannot explain it: what a mask decoder can do is reweight
+features the encoder already computes, and on medical images those features are what is missing.
+
+Adding decoder training on top of LoRA lands in between (+0.010 [0.007, 0.015] over the paper's
+configuration, below LoRA alone). Whether that is overfitting on 24 training patients or
+interference between the two adaptations, this experiment cannot say.
 
 Two further things fall out. Fine-tuning **collapses the oracle gap** — 0.029 zero-shot against
 0.010, 0.010 and 0.006 for the three arms — so adaptation improves not only the masks but the
@@ -114,6 +118,10 @@ every arm (decoder +0.012 under the oracle rule against +0.032 deployable).
 That completes the pattern. Every quantitative conclusion in the paper — prompt strategy, model
 scale, automatic mode, perturbation robustness, and fine-tuning — is compressed or reversed by
 the same leak of ground truth into the evaluation.
+
+*Scope: one dataset, one seed, ViT-B, box prompts, and a zero-shot ceiling of 0.93 that leaves
+little headroom. The effect sizes should be read as lower bounds for harder targets, and the
+single seed is the first thing to strengthen.*
 
 ### The paper's own perception analysis replicates — and the gap tracks difficulty
 

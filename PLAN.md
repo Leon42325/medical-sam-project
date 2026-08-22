@@ -159,9 +159,10 @@ reported +4.39 DICE is bounded by what a mask decoder can do with unchanged feat
 configuration), LoRA on the encoder, both - trained on a patient-level split and compared
 paired on the test split.
 
-**VERDICT: supported.** LoRA on the encoder (0.455M trainable) gives +0.047 DICE over zero-shot
-against +0.032 for decoder-only (4.058M), on 10 held-out patients with cluster-bootstrapped
-intervals. The parameter budget favours the decoder arm 9:1, so the result is about the locus of
+**VERDICT: supported.** Compared directly and paired on identical prompts, LoRA on the encoder
+(0.455M trainable) beats decoder-only fine-tuning (4.058M) by +0.016 DICE [0.012, 0.019] on 10
+held-out patients, cluster-bootstrapped over patients. Against zero-shot the arms give +0.047
+and +0.032 respectively. The parameter budget favours the decoder arm 9:1, so the result is about the locus of
 adaptation rather than capacity. Fine-tuning also collapses the oracle gap from 0.029 to
 0.006-0.010, and the paper's own rule understates each arm's gain by roughly a factor of two.
 
